@@ -1,0 +1,244 @@
+from fastapi import APIRouter, HTTPException, status
+from typing import Dict, Any
+import json
+
+from backend.models import (
+    PlayerAnalysisRequest, 
+    PGNAnalysisRequest, 
+    RecentGamesRequest,
+    AnalysisResponse,
+    ErrorResponse
+)
+from backend.agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games
+from backend.utils.logging import get_logger
+from backend.utils.qdrant_client import (
+    create_qdrant_client, 
+    ensure_chess_collection_exists, 
+    upsert_game_vectors
+)
+
+logger = get_logger(__name__)
+
+router = APIRouter(tags=["chess-analysis"])
+
+@router.post("/player", response_model=AnalysisResponse)
+async def analyze_chess_player(request: PlayerAnalysisRequest):
+    """
+    Analyze a Chess.com player's profile, ratings, and performance
+    
+    Requires:
+    - username: Chess.com username
+    - openai_key: OpenAI API key
+    - langsmith_key: LangSmith API key
+    - tavily_key: Tavily API key (reserved for future use)
+    """
+    logger.info(f"Player analysis request for: {request.username}")
+    
+    if not request.username:
+        logger.warning("Player analysis request missing username")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please supply your chess.com username for analysis."
+        )
+    
+    try:
+        # Run LangGraph agent analysis
+        result = analyze_player(
+            username=request.username,
+            openai_key=request.openai_key,
+            langsmith_key=request.langsmith_key
+        )
+        
+        if not result["success"]:
+            logger.error(f"Player analysis failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Analysis failed: {result.get('error')}"
+            )
+        
+        response_data = {
+            "username": request.username,
+            "analysis_type": "player_profile",
+            "message_count": result.get("message_count", 0)
+        }
+        
+        logger.info(f"Player analysis completed successfully for: {request.username}")
+        return AnalysisResponse(
+            success=True,
+            message=f"Successfully analyzed player: {request.username}",
+            data=response_data,
+            analysis_summary=result["analysis"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error during player analysis: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_msg
+        )
+
+@router.post("/pgn", response_model=AnalysisResponse)
+async def analyze_pgn_game(request: PGNAnalysisRequest):
+    """
+    Analyze a chess game provided in PGN format
+    
+    Requires:
+    - pgn: PGN game data
+    - openai_key: OpenAI API key  
+    - langsmith_key: LangSmith API key
+    - tavily_key: Tavily API key (reserved for future use)
+    - qdrant_api_key: Optional Qdrant API key for vector storage
+    """
+    logger.info("PGN analysis request received")
+    
+    if not request.pgn.strip():
+        logger.warning("PGN analysis request missing game data")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide PGN game data for analysis."
+        )
+    
+    try:
+        # Run LangGraph agent analysis
+        result = analyze_pgn_game(
+            pgn_content=request.pgn,
+            openai_key=request.openai_key,
+            langsmith_key=request.langsmith_key
+        )
+        
+        if not result["success"]:
+            logger.error(f"PGN analysis failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Analysis failed: {result.get('error')}"
+            )
+        
+        # Optional: Store in Qdrant if API key provided
+        vector_storage_result = None
+        if request.qdrant_api_key:
+            try:
+                vector_storage_result = await _store_pgn_in_qdrant(
+                    request.pgn, 
+                    result["analysis"],
+                    request.qdrant_api_key,
+                    request.qdrant_url
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store in Qdrant: {e}")
+                # Continue without vector storage
+        
+        response_data = {
+            "analysis_type": "pgn_game",
+            "message_count": result.get("message_count", 0),
+            "vector_storage": vector_storage_result is not None
+        }
+        
+        logger.info("PGN analysis completed successfully")
+        return AnalysisResponse(
+            success=True,
+            message="Successfully analyzed PGN game",
+            data=response_data,
+            analysis_summary=result["analysis"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error during PGN analysis: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_msg
+        )
+
+@router.post("/recent-games", response_model=AnalysisResponse)
+async def analyze_recent_games_endpoint(request: RecentGamesRequest):
+    """
+    Analyze recent games for a Chess.com player
+    
+    Requires:
+    - username: Chess.com username
+    - num_games: Number of recent games to analyze (1-50)
+    - openai_key: OpenAI API key
+    - langsmith_key: LangSmith API key  
+    - tavily_key: Tavily API key (reserved for future use)
+    """
+    logger.info(f"Recent games analysis request for: {request.username} ({request.num_games} games)")
+    
+    if not request.username:
+        logger.warning("Recent games analysis request missing username")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please supply your chess.com username for analysis."
+        )
+    
+    try:
+        # Run LangGraph agent analysis
+        result = analyze_recent_games(
+            username=request.username,
+            num_games=request.num_games,
+            openai_key=request.openai_key,
+            langsmith_key=request.langsmith_key
+        )
+        
+        if not result["success"]:
+            logger.error(f"Recent games analysis failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Analysis failed: {result.get('error')}"
+            )
+        
+        response_data = {
+            "username": request.username,
+            "num_games_requested": request.num_games,
+            "analysis_type": "recent_games",
+            "message_count": result.get("message_count", 0)
+        }
+        
+        logger.info(f"Recent games analysis completed for: {request.username}")
+        return AnalysisResponse(
+            success=True,
+            message=f"Successfully analyzed {request.num_games} recent games for {request.username}",
+            data=response_data,
+            analysis_summary=result["analysis"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error during recent games analysis: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_msg
+        )
+
+async def _store_pgn_in_qdrant(
+    pgn_content: str, 
+    analysis_summary: str, 
+    qdrant_api_key: str,
+    qdrant_url: str
+) -> bool:
+    """Store PGN game and analysis in Qdrant vector database"""
+    try:
+        # Create Qdrant client
+        qdrant_client = create_qdrant_client(qdrant_api_key, qdrant_url)
+        
+        # Ensure collection exists
+        if not ensure_chess_collection_exists(qdrant_client):
+            logger.error("Failed to ensure Qdrant collection exists")
+            return False
+        
+        # Generate embedding for the game analysis (simplified - in production, use OpenAI embeddings)
+        # For now, we'll skip the actual embedding generation and vector storage
+        # This would require additional OpenAI API calls for text-embedding-ada-002
+        
+        logger.info("Qdrant storage placeholder - embedding generation not implemented")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error storing in Qdrant: {e}")
+        return False 

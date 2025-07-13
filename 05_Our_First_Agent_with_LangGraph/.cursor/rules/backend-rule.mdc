@@ -1,0 +1,27 @@
+---
+description: FastAPI backend with LangGraph integration, following assignment notebook conventions
+globs:
+  - backend/**
+  - vercel.json
+  - backend/requirements.txt
+  - pyproject.toml
+  - .env
+
+alwaysApply: false
+---
+
+- all backend code lives in /backend
+- backend must use FastAPI and LangGraph
+- code must follow the style and comments of the notebook: "Introduction_to_LangGraph_for_Agents_Assignment_Version.ipynb"
+- comments must be concise, inline only for non-obvious logic, phrased professionally
+- implement logging for all actions for debugging and traceability
+- use Pydantic models to validate input/output, never return raw ORM objects
+- configure Gunicorn with Uvicorn workers using (CPU * 2 + 1) formula for production
+- expose a health endpoint at /health for uptime checks
+- CORS policy must be permissive to allow public use
+- all endpoints using OpenAI, Tavily, or LangSmith keys must accept those keys via request
+- integrate LangSmith tracing as done in the notebook
+- backend must support Vercel deployment and include vercel.json in root
+- add all backend dependencies to backend/requirements.txt
+- also add the same dependencies to the root pyproject.toml to support uv
+- code must be scaffolded from scratch (project currently lacks FastAPI files)
