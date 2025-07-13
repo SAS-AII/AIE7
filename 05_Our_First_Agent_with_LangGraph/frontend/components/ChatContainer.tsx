@@ -5,6 +5,7 @@ import { useChatStream } from '@/hooks/useChatStream';
 import { useSettings } from '@/contexts/SettingsContext';
 import { toast } from 'react-hot-toast';
 import clsx from 'clsx';
+import { getApiUrl } from '@/utils/api';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import SettingsModal from './SettingsModal';
@@ -50,7 +51,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
     // Optionally handle file upload as attachment (not implemented here)
     // For now, just send the message to the backend /analyze/chat endpoint
     try {
-      const response = await fetch('/analyze/chat', {
+      const response = await fetch(getApiUrl('/analyze/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

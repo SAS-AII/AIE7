@@ -1,4 +1,20 @@
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+// Use relative paths for API calls - Next.js rewrites will handle routing
+const getApiUrl = (endpoint: string) => {
+  // In development, use rewrites to proxy to backend
+  // In production, use the environment variable or relative path
+  if (process.env.NODE_ENV === 'development') {
+    return `/api${endpoint}`;
+  }
+  
+  // In production, use the environment variable if set, otherwise use relative path
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (apiUrl) {
+    return `${apiUrl}${endpoint}`;
+  }
+  
+  // Fallback to relative path for Vercel deployment
+  return `/api${endpoint}`;
+};
 
 // Types for API requests and responses
 export interface ChatMessage {
@@ -72,7 +88,7 @@ const fetchWithErrorHandling = async <T>(
 
 // Health check endpoint
 export const checkHealth = async (): Promise<HealthResponse> => {
-  return fetchWithErrorHandling<HealthResponse>(`${apiUrl}/health`, {
+  return fetchWithErrorHandling<HealthResponse>(`${getApiUrl('/health')}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -84,7 +100,7 @@ export const checkHealth = async (): Promise<HealthResponse> => {
 export const analyzePlayer = async (
   request: PlayerAnalysisRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const response = await fetch(`${apiUrl}/analyze/player`, {
+  const response = await fetch(`${getApiUrl('/analyze/player')}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -104,7 +120,7 @@ export const analyzePlayer = async (
 export const analyzePGN = async (
   request: PGNAnalysisRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const response = await fetch(`${apiUrl}/analyze/pgn`, {
+  const response = await fetch(`${getApiUrl('/analyze/pgn')}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -124,7 +140,7 @@ export const analyzePGN = async (
 export const analyzeRecentGames = async (
   request: RecentGamesRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const response = await fetch(`${apiUrl}/analyze/recent-games`, {
+  const response = await fetch(`${getApiUrl('/analyze/recent-games')}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -171,7 +187,7 @@ export const uploadPNG = async (
     formData.append('qdrant_url', apiKeys.qdrant_url);
   }
 
-  const response = await fetch(`${apiUrl}/upload/png`, {
+  const response = await fetch(`${getApiUrl('/upload/png')}`, {
     method: 'POST',
     body: formData,
   });
@@ -215,4 +231,4 @@ export const readStream = async (
   }
 };
 
-export { apiUrl }; 
+export { getApiUrl }; 
