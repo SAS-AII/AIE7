@@ -106,43 +106,35 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const data = await response.json();
       
       // Update conversation state
-      setConversationState(result.state || {});
-
+      setConversationState(data.conversation_state || {});
+      
       // Replace loading message with actual response
-      const assistantMessage = {
-        id: loadingMessage.id,
-        content: result.response,
-        role: 'assistant' as const,
-        timestamp: new Date(),
+      actions.updateMessage(loadingMessage.id, {
+        content: data.response,
         isLoading: false,
-        agentUsed: result.agent_used,
-        ragSources: result.rag_sources,
-      };
-
-      actions.updateMessage(loadingMessage.id, assistantMessage);
+        agentUsed: data.agent_used,
+        ragSources: data.rag_sources,
+      });
 
     } catch (error) {
       console.error('Error sending message:', error);
       
-      // Replace loading message with error
-      const errorMessage = {
-        id: loadingMessage.id,
-        content: 'Sorry, I encountered an error processing your message. Please try again.',
-        role: 'assistant' as const,
-        timestamp: new Date(),
+      // Replace loading message with error message
+      actions.updateMessage(loadingMessage.id, {
+        content: 'Sorry, I encountered an error. Please try again.',
         isLoading: false,
         isError: true,
-      };
-
-      actions.updateMessage(loadingMessage.id, errorMessage);
+      });
       
       toast.error('Failed to send message. Please try again.');
     }
   }, [
     hasRequiredKeys, 
+    actions, 
+    conversationState, 
     openaiKey, 
     langsmithKey, 
     tavilyKey, 
@@ -168,46 +160,48 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
   return (
     <div className={clsx('flex flex-col h-full bg-gray-50 dark:bg-gray-900', className)}>
       {/* Header */}
-      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">♔</span>
+      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="max-w-4xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">♔</span>
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Chess Assistant
+                </h1>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Multi-Agent RAG System
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Chess Assistant
-              </h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Multi-Agent RAG System
-              </p>
+            
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setIsKnowledgeOpen(true)}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="Manage Knowledge Base"
+              >
+                <FolderOpenIcon className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="Settings"
+              >
+                <CogIcon className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={handleClearChat}
+                className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="Clear Chat"
+              >
+                <TrashIcon className="w-5 h-5" />
+              </button>
             </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setIsKnowledgeOpen(true)}
-              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="Manage Knowledge Base"
-            >
-              <FolderOpenIcon className="w-5 h-5" />
-            </button>
-            
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="Settings"
-            >
-              <CogIcon className="w-5 h-5" />
-            </button>
-            
-            <button
-              onClick={handleClearChat}
-              className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="Clear Chat"
-            >
-              <TrashIcon className="w-5 h-5" />
-            </button>
           </div>
         </div>
       </div>
@@ -215,64 +209,68 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
       {/* Messages */}
       <div 
         ref={containerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className="flex-1 overflow-y-auto"
       >
-        {state.messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mb-4">
-              <span className="text-white font-bold text-2xl">♔</span>
-            </div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              Welcome to Chess Assistant
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400 max-w-md">
-              I'm your AI chess expert powered by multiple specialized agents and a knowledge base. 
-              Ask me about chess theory, analyze games, or get player insights!
-            </p>
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
-              <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
-                  📚 Chess Knowledge
-                </h3>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  Ask about openings, endgames, tactics, and strategy
-                </p>
+        <div className="max-w-4xl mx-auto px-4 py-4 space-y-4">
+          {state.messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mb-4">
+                <span className="text-white font-bold text-2xl">♔</span>
               </div>
-              <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
-                  🎯 Game Analysis
-                </h3>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  Analyze Chess.com players and games
-                </p>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                Welcome to Chess Assistant
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 max-w-md">
+                I'm your AI chess expert powered by multiple specialized agents and a knowledge base. 
+                Ask me about chess theory, analyze games, or get player insights!
+              </p>
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
+                <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
+                    📚 Chess Knowledge
+                  </h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    Ask about openings, endgames, tactics, and strategy
+                  </p>
+                </div>
+                <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
+                    🎯 Game Analysis
+                  </h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    Analyze Chess.com players and games
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {state.messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
-            
-            {!isAtBottom() && (
-              <button
-                onClick={scrollToBottom}
-                className="fixed bottom-20 right-6 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg transition-colors z-10"
-              >
-                <ArrowDownIcon className="w-5 h-5" />
-              </button>
-            )}
-          </>
-        )}
+          ) : (
+            <>
+              {state.messages.map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
+              
+              {!isAtBottom() && (
+                <button
+                  onClick={scrollToBottom}
+                  className="fixed bottom-20 right-6 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg transition-colors z-10"
+                >
+                  <ArrowDownIcon className="w-5 h-5" />
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          disabled={state.isLoading}
-          placeholder="Ask me anything about chess..."
-        />
+      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="max-w-4xl mx-auto p-4">
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            disabled={state.isLoading}
+            placeholder="Ask me anything about chess..."
+          />
+        </div>
       </div>
 
       {/* Modals */}

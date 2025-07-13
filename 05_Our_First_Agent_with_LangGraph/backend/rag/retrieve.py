@@ -1,194 +1,231 @@
 """Document retrieval system for chess knowledge base"""
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
+from langchain.schema import Document
 from aimakerspace.openai_utils.embedding import EmbeddingModel
+from aimakerspace.vectordatabase import VectorDatabase
+from core.qdrant_client import get_qdrant_client
+from .prompts import CHESS_QUERY_EXPANSION_PROMPT, CHESS_RESPONSE_PROMPT
 
 logger = logging.getLogger(__name__)
 
 class ChessDocumentRetriever:
-    """Handles retrieval of relevant chess knowledge from the vector database"""
-    
-    def __init__(self):
-        self.embedding_model = EmbeddingModel()
-    
-    def _expand_query(self, query: str) -> List[str]:
-        """Expand query with chess-related terms for better retrieval"""
-        base_queries = [query]
+    def __init__(self, api_key: Optional[str] = None):
+        self.embedding_model = EmbeddingModel(api_key=api_key) if api_key else None
+        self.vector_db = None
+        self.qdrant_client = None
+        self.collection_name = "chess_knowledge"
         
-        # Add chess-specific expansions
-        chess_terms = {
-            "opening": ["chess opening", "opening theory", "opening moves"],
-            "endgame": ["chess endgame", "endgame technique", "endgame theory"],
-            "tactic": ["chess tactics", "tactical motifs", "chess combinations"],
-            "strategy": ["chess strategy", "strategic concepts", "positional play"],
-            "player": ["chess player", "grandmaster", "chess master"],
-            "game": ["chess game", "chess match", "chess analysis"]
-        }
+    def _ensure_clients(self, api_key: str, qdrant_url: str, qdrant_api_key: str):
+        """Ensure all clients are initialized"""
+        if not self.embedding_model:
+            self.embedding_model = EmbeddingModel(api_key=api_key)
         
-        query_lower = query.lower()
-        for key, expansions in chess_terms.items():
-            if key in query_lower:
-                base_queries.extend(expansions)
-        
-        return base_queries[:5]  # Limit to avoid too many queries
+        if not self.qdrant_client:
+            self.qdrant_client = get_qdrant_client(qdrant_url, qdrant_api_key)
+            
+        if not self.vector_db and self.qdrant_client:
+            self.vector_db = VectorDatabase(
+                collection_name=self.collection_name,
+                embedding_model=self.embedding_model,
+                qdrant_client=self.qdrant_client
+            )
     
-    async def search_similar_documents(
-        self,
-        query: str,
-        limit: int = 10,
-        score_threshold: float = 0.3,
-        use_query_expansion: bool = True
-    ) -> List[Dict[str, Any]]:
-        """Search for similar documents in the chess knowledge base"""
+    async def expand_chess_query(self, query: str, api_key: str) -> List[str]:
+        """Expand a chess query into multiple search terms"""
         try:
-            from core.qdrant_client import get_qdrant
-            client = get_qdrant()
+            from langchain_openai import ChatOpenAI
             
-            # Generate query embedding
-            query_embedding = self.embedding_model.get_embeddings([query])[0]
-            
-            # Search in Qdrant
-            search_results = client.search(
-                collection_name="chess_knowledge",
-                query_vector=query_embedding,
-                limit=limit,
-                score_threshold=score_threshold,
-                with_payload=True
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                api_key=api_key
             )
             
-            # Format results
-            results = []
-            for result in search_results:
-                results.append({
-                    "content": result.payload["content"],
-                    "filename": result.payload.get("filename", "unknown"),
-                    "chunk_index": result.payload.get("chunk_index", 0),
-                    "similarity_score": result.score,
-                    "source": result.payload.get("source", "unknown"),
-                    "content_type": result.payload.get("content_type", "unknown")
-                })
+            expanded_query = await llm.ainvoke(
+                CHESS_QUERY_EXPANSION_PROMPT.format(query=query)
+            )
             
-            # If no results and query expansion is enabled, try expanded queries
-            if not results and use_query_expansion:
-                expanded_queries = self._expand_query(query)
-                for expanded_query in expanded_queries[1:]:  # Skip original query
-                    expanded_embedding = self.embedding_model.get_embeddings([expanded_query])[0]
-                    expanded_results = client.search(
-                        collection_name="chess_knowledge",
-                        query_vector=expanded_embedding,
-                        limit=limit // 2,  # Use fewer results per expansion
-                        score_threshold=score_threshold * 0.8,  # Lower threshold for expansions
-                        with_payload=True
+            # Parse the response to extract search terms
+            content = expanded_query.content.strip()
+            if content.startswith('[') and content.endswith(']'):
+                import ast
+                try:
+                    terms = ast.literal_eval(content)
+                    return terms if isinstance(terms, list) else [query]
+                except:
+                    pass
+            
+            # Fallback: split by lines and clean up
+            lines = content.split('\n')
+            terms = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#') and not line.startswith('//'):
+                    # Remove bullet points and numbering
+                    line = line.lstrip('- •*123456789. ')
+                    if line:
+                        terms.append(line)
+            
+            return terms[:5] if terms else [query]  # Limit to 5 terms
+            
+        except Exception as e:
+            logger.error(f"Error expanding query: {e}")
+            return [query]
+    
+    async def retrieve_documents(
+        self, 
+        query: str, 
+        api_key: str,
+        qdrant_url: str,
+        qdrant_api_key: str,
+        k: int = 5
+    ) -> List[Document]:
+        """Retrieve relevant documents for a chess query"""
+        try:
+            self._ensure_clients(api_key, qdrant_url, qdrant_api_key)
+            
+            if not self.qdrant_client:
+                logger.warning("Qdrant client not available, returning empty results")
+                return []
+            
+            # Expand the query for better retrieval
+            expanded_queries = await self.expand_chess_query(query, api_key)
+            
+            all_documents = []
+            seen_content = set()
+            
+            # Search with each expanded query
+            for expanded_query in expanded_queries:
+                try:
+                    # Get embedding for the query
+                    query_embedding = await self.embedding_model.async_get_embedding(expanded_query)
+                    
+                    # Search in vector database
+                    search_results = self.qdrant_client.search(
+                        collection_name=self.collection_name,
+                        query_vector=query_embedding,
+                        limit=k,
+                        score_threshold=0.5
                     )
                     
-                    for result in expanded_results:
-                        results.append({
-                            "content": result.payload["content"],
-                            "filename": result.payload.get("filename", "unknown"),
-                            "chunk_index": result.payload.get("chunk_index", 0),
-                            "similarity_score": result.score,
-                            "source": result.payload.get("source", "unknown"),
-                            "content_type": result.payload.get("content_type", "unknown"),
-                            "search_query": expanded_query
-                        })
-                    
-                    if results:  # Stop if we found something
-                        break
-                
-                # Remove duplicates and sort by score
-                seen_content = set()
-                unique_results = []
-                for result in sorted(results, key=lambda x: x["similarity_score"], reverse=True):
-                    content_key = (result["content"][:100], result["filename"])
-                    if content_key not in seen_content:
-                        seen_content.add(content_key)
-                        unique_results.append(result)
-                
-                results = unique_results[:limit]
+                    # Convert to Document objects
+                    for result in search_results:
+                        content = result.payload.get('content', '')
+                        if content and content not in seen_content:
+                            seen_content.add(content)
+                            doc = Document(
+                                page_content=content,
+                                metadata={
+                                    'source': result.payload.get('source', 'unknown'),
+                                    'score': result.score,
+                                    'query': expanded_query
+                                }
+                            )
+                            all_documents.append(doc)
+                            
+                except Exception as e:
+                    logger.error(f"Error searching with query '{expanded_query}': {e}")
+                    continue
             
-            logger.info(f"Retrieved {len(results)} documents for query: {query[:50]}...")
-            return results
+            # Sort by score and return top k
+            all_documents.sort(key=lambda x: x.metadata.get('score', 0), reverse=True)
+            return all_documents[:k]
             
         except Exception as e:
-            logger.error(f"Error searching documents: {e}")
+            logger.error(f"Error retrieving documents: {e}")
             return []
     
-    async def get_context_for_query(
-        self,
-        query: str,
-        max_chunks: int = 8,
-        max_chars: int = 6000
-    ) -> Dict[str, Any]:
-        """Get formatted context for RAG responses"""
+    async def get_contextual_answer(
+        self, 
+        query: str, 
+        documents: List[Document],
+        api_key: str
+    ) -> str:
+        """Generate a contextual answer using retrieved documents"""
         try:
-            # Search for relevant documents
-            documents = await self.search_similar_documents(
-                query=query,
-                limit=max_chunks,
-                score_threshold=0.3
-            )
+            from langchain_openai import ChatOpenAI
             
             if not documents:
-                return {
-                    "context": "No relevant chess knowledge found for this query.",
-                    "context_count": 0,
-                    "similarity_scores": [],
-                    "sources": []
-                }
+                return "I don't have enough information in my knowledge base to answer this chess question. Please try asking about chess openings, tactics, endgames, or strategy."
             
-            # Build context string
+            # Prepare context from documents
             context_parts = []
-            total_chars = 0
-            similarity_scores = []
-            sources = []
+            for i, doc in enumerate(documents[:3], 1):  # Use top 3 documents
+                context_parts.append(f"Source {i}: {doc.page_content}")
             
-            for i, doc in enumerate(documents):
-                if total_chars >= max_chars:
-                    break
-                
-                chunk_text = f"[Source {i+1}: {doc['filename']}]\n{doc['content']}\n"
-                
-                if total_chars + len(chunk_text) <= max_chars:
-                    context_parts.append(chunk_text)
-                    total_chars += len(chunk_text)
-                    similarity_scores.append(doc['similarity_score'])
-                    sources.append({
-                        "filename": doc['filename'],
-                        "chunk_index": doc['chunk_index'],
-                        "score": doc['similarity_score']
-                    })
-                else:
-                    # Add partial content if it fits
-                    remaining_chars = max_chars - total_chars
-                    if remaining_chars > 100:  # Only if meaningful content can fit
-                        partial_content = doc['content'][:remaining_chars-50] + "..."
-                        chunk_text = f"[Source {i+1}: {doc['filename']}]\n{partial_content}\n"
-                        context_parts.append(chunk_text)
-                        similarity_scores.append(doc['similarity_score'])
-                        sources.append({
-                            "filename": doc['filename'],
-                            "chunk_index": doc['chunk_index'],
-                            "score": doc['similarity_score']
-                        })
-                    break
+            context = "\n\n".join(context_parts)
             
-            context = "\n".join(context_parts)
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                api_key=api_key
+            )
             
-            return {
-                "context": context,
-                "context_count": len(context_parts),
-                "similarity_scores": similarity_scores,
-                "sources": sources
-            }
+            response = await llm.ainvoke(
+                CHESS_RESPONSE_PROMPT.format(
+                    context=context,
+                    query=query
+                )
+            )
+            
+            return response.content.strip()
             
         except Exception as e:
-            logger.error(f"Error generating context: {e}")
+            logger.error(f"Error generating contextual answer: {e}")
+            return "I encountered an error while processing your chess question. Please try again."
+
+    def get_collection_info(self, qdrant_url: str, qdrant_api_key: str) -> Dict[str, Any]:
+        """Get information about the chess knowledge collection"""
+        try:
+            if not self.qdrant_client:
+                self.qdrant_client = get_qdrant_client(qdrant_url, qdrant_api_key)
+            
+            if not self.qdrant_client:
+                return {
+                    "exists": False,
+                    "points_count": 0,
+                    "vectors_count": 0,
+                    "status": "client_unavailable"
+                }
+            
+            try:
+                collection_info = self.qdrant_client.get_collection(self.collection_name)
+                return {
+                    "exists": True,
+                    "points_count": collection_info.points_count,
+                    "vectors_count": collection_info.vectors_count,
+                    "status": collection_info.status
+                }
+            except Exception:
+                return {
+                    "exists": False,
+                    "points_count": 0,
+                    "vectors_count": 0,
+                    "status": "not_found"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting collection info: {e}")
             return {
-                "context": "Error retrieving chess knowledge.",
-                "context_count": 0,
-                "similarity_scores": [],
-                "sources": []
+                "exists": False,
+                "points_count": 0,
+                "vectors_count": 0,
+                "status": "error"
             }
 
-# Global instance
-document_retriever = ChessDocumentRetriever() 
+# Create a function to get a retriever instance instead of a global instance
+def get_document_retriever(api_key: Optional[str] = None) -> ChessDocumentRetriever:
+    """Get a document retriever instance"""
+    return ChessDocumentRetriever(api_key=api_key)
+
+# For backward compatibility, create a default instance only when needed
+document_retriever = None
+
+def get_default_document_retriever():
+    """Get the default document retriever instance"""
+    global document_retriever
+    if document_retriever is None:
+        document_retriever = ChessDocumentRetriever()
+    return document_retriever 

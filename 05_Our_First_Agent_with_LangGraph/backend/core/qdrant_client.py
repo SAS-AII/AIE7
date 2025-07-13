@@ -11,16 +11,19 @@ logger = logging.getLogger(__name__)
 class ChessQdrantClient:
     """Qdrant client for chess knowledge storage"""
     
-    def __init__(self):
+    def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None):
         self.client = None
         self.collection_name = "chess_knowledge"
+        self.url = url
+        self.api_key = api_key
         self._initialize_client()
     
     def _initialize_client(self):
         """Initialize Qdrant client with proper configuration"""
         try:
-            qdrant_url = os.getenv("QDRANT_URL")
-            qdrant_api_key = os.getenv("QDRANT_API_KEY")
+            # Use provided credentials or fallback to environment variables
+            qdrant_url = self.url or os.getenv("QDRANT_URL")
+            qdrant_api_key = self.api_key or os.getenv("QDRANT_API_KEY")
             
             if not qdrant_url or not qdrant_api_key:
                 logger.warning("Qdrant credentials not found. Vector search will be disabled.")
@@ -48,21 +51,21 @@ class ChessQdrantClient:
         
         try:
             # Check if collection exists
-            collections = self.client.get_collections()
-            collection_names = [col.name for col in collections.collections]
+            collections = self.client.get_collections().collections
+            collection_names = [col.name for col in collections]
             
             if self.collection_name not in collection_names:
-                # Create collection with optimized settings for chess knowledge
+                # Create collection with vector configuration
                 self.client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=VectorParams(
-                        size=1536,  # OpenAI embedding size
-                        distance=Distance.COSINE  # Best for semantic similarity
+                        size=1536,  # OpenAI embedding dimension
+                        distance=Distance.COSINE
                     )
                 )
-                logger.info(f"Created Qdrant collection: {self.collection_name}")
+                logger.info(f"Created collection: {self.collection_name}")
             else:
-                logger.info(f"Qdrant collection {self.collection_name} already exists")
+                logger.info(f"Collection {self.collection_name} already exists")
                 
         except Exception as e:
             logger.error(f"Error ensuring collection exists: {e}")
@@ -81,6 +84,16 @@ _qdrant_client = ChessQdrantClient()
 def get_qdrant() -> Optional[QdrantClient]:
     """Get the global Qdrant client instance"""
     return _qdrant_client.get_client()
+
+def get_qdrant_client(url: Optional[str] = None, api_key: Optional[str] = None) -> Optional[QdrantClient]:
+    """Get a Qdrant client instance with optional custom credentials"""
+    if url and api_key:
+        # Create a new client instance with provided credentials
+        client_instance = ChessQdrantClient(url=url, api_key=api_key)
+        return client_instance.get_client()
+    else:
+        # Return the global instance
+        return get_qdrant()
 
 def is_qdrant_available() -> bool:
     """Check if Qdrant is available"""

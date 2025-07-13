@@ -1,351 +1,308 @@
-"""Multi-agent chess assistant system with supervisor"""
-import logging
-from typing import Dict, Any, List, TypedDict, Annotated
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.tools import tool
+"""
+Multi-agent system for chess analysis using LangGraph
+"""
 
-from rag.retrieve import document_retriever
-from rag.prompts import format_chess_system_prompt, format_chess_user_prompt
+import os
+from typing import TypedDict, List, Dict, Any, Optional
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
+
+from rag.retrieve import get_document_retriever
+from rag.prompts import CHESS_SUPERVISOR_PROMPT, CHESS_RAG_PROMPT, CHESS_PLAYER_ANALYSIS_PROMPT
 from tools.chess_tools import get_player_stats, analyze_pgn, get_recent_games
 
-logger = logging.getLogger(__name__)
-
-class MultiAgentState(TypedDict):
-    """State for multi-agent chess system"""
-    messages: Annotated[list, add_messages]
+class ChessAgentState(TypedDict):
+    """State for the chess multi-agent system"""
+    messages: List[Any]
     current_agent: str
-    rag_context: Dict[str, Any]
-    chess_data: Dict[str, Any]
-    supervisor_decision: str
-    iteration_count: int
+    rag_sources: int
+    conversation_state: Dict[str, Any]
+    api_keys: Dict[str, str]
 
 class ChessMultiAgentSystem:
-    """Multi-agent system for comprehensive chess assistance"""
+    """Multi-agent system for chess analysis with supervisor routing"""
     
-    def __init__(self, openai_key: str, langsmith_key: str = None, tavily_key: str = None):
-        self.openai_key = openai_key
-        self.langsmith_key = langsmith_key
-        self.tavily_key = tavily_key
+    def __init__(self):
+        self.graph = None
+        self.compiled_graph = None
         
-        # Initialize models
-        self.supervisor_model = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            api_key=openai_key
-        )
-        
-        self.rag_agent_model = ChatOpenAI(
-            model="gpt-4o-mini", 
-            temperature=0.1,
-            api_key=openai_key
-        )
-        
-        self.chess_agent_model = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0.1,
-            api_key=openai_key
-        )
-        
-        # Setup tools
-        self.tools = []
-        if tavily_key:
-            self.tools.append(TavilySearchResults(max_results=3, api_key=tavily_key))
-        
-        # Add chess-specific tools
-        self.tools.extend([get_player_stats, analyze_pgn, get_recent_games])
-        
-        # Bind tools to chess agent
-        self.chess_agent_with_tools = self.chess_agent_model.bind_tools(self.tools)
-        self.tool_node = ToolNode(self.tools)
-        
-        # Build the graph
-        self.graph = self._build_graph()
-    
-    def _build_graph(self) -> StateGraph:
-        """Build the multi-agent graph"""
-        workflow = StateGraph(MultiAgentState)
-        
-        # Add nodes
-        workflow.add_node("supervisor", self._supervisor_agent)
-        workflow.add_node("rag_agent", self._rag_agent)
-        workflow.add_node("chess_agent", self._chess_agent)
-        workflow.add_node("tool_execution", self.tool_node)
-        workflow.add_node("final_response", self._final_response_agent)
-        
-        # Set entry point
-        workflow.set_entry_point("supervisor")
-        
-        # Add edges
-        workflow.add_conditional_edges(
-            "supervisor",
-            self._supervisor_routing,
-            {
-                "rag_agent": "rag_agent",
-                "chess_agent": "chess_agent", 
-                "final_response": "final_response",
-                "end": END
-            }
-        )
-        
-        workflow.add_edge("rag_agent", "final_response")
-        
-        workflow.add_conditional_edges(
-            "chess_agent",
-            self._chess_agent_routing,
-            {
-                "tool_execution": "tool_execution",
-                "final_response": "final_response"
-            }
-        )
-        
-        workflow.add_edge("tool_execution", "chess_agent")
-        workflow.add_edge("final_response", END)
-        
-        return workflow.compile()
-    
-    def _supervisor_agent(self, state: MultiAgentState) -> MultiAgentState:
-        """Supervisor agent that routes to appropriate specialist"""
+    async def _create_supervisor_agent(self, state: ChessAgentState) -> Dict[str, Any]:
+        """Supervisor agent that routes queries to appropriate specialist"""
         try:
+            api_keys = state.get("api_keys", {})
+            openai_key = api_keys.get("openai_key")
+            
+            if not openai_key:
+                return {
+                    "messages": [AIMessage(content="Error: OpenAI API key is required")],
+                    "current_agent": "supervisor"
+                }
+            
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                api_key=openai_key
+            )
+            
+            # Get the last user message
             last_message = state["messages"][-1]
             user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
             
-            supervisor_prompt = f"""You are a Chess Assistant Supervisor. Your job is to route user queries to the most appropriate specialist agent.
-
-Available agents:
-1. RAG_AGENT - For queries that need chess knowledge from uploaded documents/database
-2. CHESS_AGENT - For Chess.com player analysis, game analysis, and live chess data
-3. FINAL_RESPONSE - For simple greetings or when no specialist is needed
-4. END - For non-chess related queries
-
-User Query: {user_query}
-
-Analysis:
-- If asking about chess theory, openings, endgames, or concepts that might be in documents: RAG_AGENT
-- If asking about Chess.com players, game analysis, or recent games: CHESS_AGENT  
-- If asking about non-chess topics: END
-- If simple greeting or general chess question: FINAL_RESPONSE
-
-Respond with only: RAG_AGENT, CHESS_AGENT, FINAL_RESPONSE, or END"""
-
-            response = self.supervisor_model.invoke([
-                SystemMessage(content=supervisor_prompt),
+            # Use supervisor prompt to determine routing
+            supervisor_response = await llm.ainvoke([
+                SystemMessage(content=CHESS_SUPERVISOR_PROMPT),
                 HumanMessage(content=user_query)
             ])
             
-            decision = response.content.strip().upper()
+            # Parse supervisor decision
+            decision = supervisor_response.content.strip().lower()
             
-            # Validate decision
-            valid_decisions = ["RAG_AGENT", "CHESS_AGENT", "FINAL_RESPONSE", "END"]
-            if decision not in valid_decisions:
-                decision = "FINAL_RESPONSE"  # Default fallback
-            
-            logger.info(f"Supervisor decision: {decision} for query: {user_query[:50]}...")
+            if "rag_agent" in decision:
+                next_agent = "rag_agent"
+            elif "chess_agent" in decision:
+                next_agent = "chess_agent"
+            else:
+                # Default to RAG for general chess questions
+                next_agent = "rag_agent"
             
             return {
-                **state,
-                "supervisor_decision": decision,
-                "current_agent": "supervisor",
-                "iteration_count": state.get("iteration_count", 0) + 1
+                "messages": state["messages"],
+                "current_agent": next_agent,
+                "rag_sources": state.get("rag_sources", 0),
+                "conversation_state": state.get("conversation_state", {}),
+                "api_keys": api_keys
             }
             
         except Exception as e:
-            logger.error(f"Error in supervisor agent: {e}")
             return {
-                **state,
-                "supervisor_decision": "FINAL_RESPONSE",
+                "messages": [AIMessage(content=f"Error in supervisor: {str(e)}")],
                 "current_agent": "supervisor"
             }
     
-    def _rag_agent(self, state: MultiAgentState) -> MultiAgentState:
+    async def _create_rag_agent(self, state: ChessAgentState) -> Dict[str, Any]:
         """RAG agent for chess knowledge retrieval"""
         try:
+            api_keys = state.get("api_keys", {})
+            openai_key = api_keys.get("openai_key")
+            qdrant_url = api_keys.get("qdrant_url", "http://localhost:6333")
+            qdrant_api_key = api_keys.get("qdrant_api_key")
+            
+            if not openai_key:
+                return {
+                    "messages": state["messages"] + [AIMessage(content="Error: OpenAI API key is required")],
+                    "current_agent": "rag_agent",
+                    "rag_sources": 0
+                }
+            
+            # Get the last user message
             last_message = state["messages"][-1]
             user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
             
-            # Get context from RAG system
-            context_data = document_retriever.get_context_for_query(
+            # Get document retriever
+            retriever = get_document_retriever(api_key=openai_key)
+            
+            # Retrieve relevant documents
+            documents = await retriever.retrieve_documents(
                 query=user_query,
-                max_chunks=8,
-                max_chars=6000
+                api_key=openai_key,
+                qdrant_url=qdrant_url,
+                qdrant_api_key=qdrant_api_key,
+                k=5
             )
             
-            # Format prompts
-            system_prompt = format_chess_system_prompt()
-            user_prompt = format_chess_user_prompt(
-                context=context_data["context"],
-                context_count=context_data["context_count"],
-                similarity_scores=context_data["similarity_scores"],
-                user_query=user_query
-            )
-            
-            # Generate response
-            response = self.rag_agent_model.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            logger.info(f"RAG agent processed query with {context_data['context_count']} context chunks")
+            if not documents:
+                response = "I don't have enough information in my knowledge base to answer this chess question. Please try asking about chess openings, tactics, endgames, or strategy."
+                rag_sources = 0
+            else:
+                # Generate contextual answer
+                response = await retriever.get_contextual_answer(
+                    query=user_query,
+                    documents=documents,
+                    api_key=openai_key
+                )
+                rag_sources = len(documents)
             
             return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content=response.content)],
-                "rag_context": context_data,
-                "current_agent": "rag_agent"
+                "messages": state["messages"] + [AIMessage(content=response)],
+                "current_agent": "rag_agent",
+                "rag_sources": rag_sources,
+                "conversation_state": state.get("conversation_state", {}),
+                "api_keys": api_keys
             }
             
         except Exception as e:
-            logger.error(f"Error in RAG agent: {e}")
-            fallback_response = "I apologize, but I'm having trouble accessing my chess knowledge base right now. Please try again later."
             return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content=fallback_response)],
-                "current_agent": "rag_agent"
+                "messages": state["messages"] + [AIMessage(content=f"Error in RAG agent: {str(e)}")],
+                "current_agent": "rag_agent",
+                "rag_sources": 0
             }
     
-    def _chess_agent(self, state: MultiAgentState) -> MultiAgentState:
-        """Chess.com agent for live data and analysis"""
+    async def _create_chess_agent(self, state: ChessAgentState) -> Dict[str, Any]:
+        """Chess.com agent with tool access"""
         try:
+            api_keys = state.get("api_keys", {})
+            openai_key = api_keys.get("openai_key")
+            
+            if not openai_key:
+                return {
+                    "messages": state["messages"] + [AIMessage(content="Error: OpenAI API key is required")],
+                    "current_agent": "chess_agent"
+                }
+            
+            # Tools for chess.com analysis
+            tools = [get_player_stats, analyze_pgn, get_recent_games]
+            
+            llm = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                api_key=openai_key
+            )
+            
+            # Bind tools to the model
+            llm_with_tools = llm.bind_tools(tools)
+            
+            # Get the last user message
             last_message = state["messages"][-1]
             user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
             
-            chess_system_prompt = """You are a Chess.com Analysis Agent. You specialize in:
-- Analyzing Chess.com player statistics and profiles
-- Analyzing chess games in PGN format  
-- Retrieving recent games for players
-- Providing chess insights based on live data
-
-Use the available tools when you need to:
-- Get player statistics from Chess.com
-- Analyze chess games
-- Retrieve recent games
-
-Always provide helpful, accurate chess analysis. If asked about non-chess topics, politely decline."""
+            # Create system message for chess agent
+            system_message = SystemMessage(content=CHESS_PLAYER_ANALYSIS_PROMPT)
             
-            # Process with tools
-            messages = [
-                SystemMessage(content=chess_system_prompt),
-                HumanMessage(content=user_query)
-            ]
-            
-            response = self.chess_agent_with_tools.invoke(messages)
-            
-            return {
-                **state,
-                "messages": state["messages"] + [response],
-                "current_agent": "chess_agent"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in chess agent: {e}")
-            fallback_response = "I apologize, but I'm having trouble accessing Chess.com data right now. Please try again later."
-            return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content=fallback_response)],
-                "current_agent": "chess_agent"
-            }
-    
-    def _final_response_agent(self, state: MultiAgentState) -> MultiAgentState:
-        """Final response agent for simple queries and coordination"""
-        try:
-            last_message = state["messages"][-1]
-            
-            # If we already have a response from a specialist agent, just pass it through
-            if isinstance(last_message, AIMessage) and state.get("current_agent") in ["rag_agent", "chess_agent"]:
-                return state
-            
-            # Handle simple queries directly
-            user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
-            
-            final_system_prompt = format_chess_system_prompt()
-            
-            response = self.rag_agent_model.invoke([
-                SystemMessage(content=final_system_prompt),
+            # Invoke the model with tools
+            response = await llm_with_tools.ainvoke([
+                system_message,
                 HumanMessage(content=user_query)
             ])
             
-            return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content=response.content)],
-                "current_agent": "final_response"
-            }
-            
+            # Check if tools were called
+            if response.tool_calls:
+                # Execute tools
+                tool_node = ToolNode(tools)
+                tool_results = tool_node.invoke({"messages": [response]})
+                
+                # Get final response with tool results
+                final_response = await llm.ainvoke([
+                    system_message,
+                    HumanMessage(content=user_query),
+                    response,
+                    *tool_results["messages"]
+                ])
+                
+                return {
+                    "messages": state["messages"] + [AIMessage(content=final_response.content)],
+                    "current_agent": "chess_agent",
+                    "rag_sources": state.get("rag_sources", 0),
+                    "conversation_state": state.get("conversation_state", {}),
+                    "api_keys": api_keys
+                }
+            else:
+                return {
+                    "messages": state["messages"] + [AIMessage(content=response.content)],
+                    "current_agent": "chess_agent",
+                    "rag_sources": state.get("rag_sources", 0),
+                    "conversation_state": state.get("conversation_state", {}),
+                    "api_keys": api_keys
+                }
+                
         except Exception as e:
-            logger.error(f"Error in final response agent: {e}")
-            fallback_response = "Hello! I'm your Chess Assistant. I can help you with chess-related questions, analyze games, and provide chess insights. What would you like to know about chess?"
             return {
-                **state,
-                "messages": state["messages"] + [AIMessage(content=fallback_response)],
-                "current_agent": "final_response"
+                "messages": state["messages"] + [AIMessage(content=f"Error in Chess agent: {str(e)}")],
+                "current_agent": "chess_agent",
+                "rag_sources": 0
             }
     
-    def _supervisor_routing(self, state: MultiAgentState) -> str:
-        """Route based on supervisor decision"""
-        decision = state.get("supervisor_decision", "final_response").lower()
+    def _should_continue(self, state: ChessAgentState) -> str:
+        """Determine if we should continue or end"""
+        current_agent = state.get("current_agent", "supervisor")
         
-        if decision == "rag_agent":
+        # If we're coming from supervisor, route to the determined agent
+        if current_agent in ["rag_agent", "chess_agent"]:
+            return current_agent
+        else:
+            # Default to rag_agent if no specific agent determined
             return "rag_agent"
-        elif decision == "chess_agent":
-            return "chess_agent"
-        elif decision == "end":
-            return "end"
-        else:
-            return "final_response"
     
-    def _chess_agent_routing(self, state: MultiAgentState) -> str:
-        """Route chess agent to tools or final response"""
-        last_message = state["messages"][-1]
+    def create_graph(self) -> StateGraph:
+        """Create the multi-agent graph"""
+        # Create the graph
+        graph = StateGraph(ChessAgentState)
         
-        # Check if the agent wants to use tools
-        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            return "tool_execution"
-        else:
-            return "final_response"
-    
-    async def process_message(self, message: str, conversation_state: Dict = None) -> Dict[str, Any]:
-        """Process a user message through the multi-agent system"""
-        try:
-            # Initialize state
-            initial_state = {
-                "messages": [HumanMessage(content=message)],
-                "current_agent": "",
-                "rag_context": {},
-                "chess_data": {},
-                "supervisor_decision": "",
-                "iteration_count": 0
+        # Add nodes
+        graph.add_node("supervisor", self._create_supervisor_agent)
+        graph.add_node("rag_agent", self._create_rag_agent)
+        graph.add_node("chess_agent", self._create_chess_agent)
+        
+        # Set entry point
+        graph.set_entry_point("supervisor")
+        
+        # Add conditional edges from supervisor
+        graph.add_conditional_edges(
+            "supervisor",
+            self._should_continue,
+            {
+                "rag_agent": "rag_agent",
+                "chess_agent": "chess_agent"
             }
+        )
+        
+        # Add edges from agents to END
+        graph.add_edge("rag_agent", END)
+        graph.add_edge("chess_agent", END)
+        
+        self.graph = graph
+        return graph
+    
+    def compile_graph(self) -> Any:
+        """Compile the graph for execution"""
+        if not self.graph:
+            self.create_graph()
+        
+        self.compiled_graph = self.graph.compile()
+        return self.compiled_graph
+    
+    async def process_query(
+        self,
+        query: str,
+        conversation_state: Dict[str, Any],
+        api_keys: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Process a query through the multi-agent system"""
+        try:
+            if not self.compiled_graph:
+                self.compile_graph()
             
-            # Merge with existing conversation state if provided
-            if conversation_state:
-                initial_state.update(conversation_state)
+            # Create initial state
+            initial_state = ChessAgentState(
+                messages=[HumanMessage(content=query)],
+                current_agent="supervisor",
+                rag_sources=0,
+                conversation_state=conversation_state,
+                api_keys=api_keys
+            )
             
             # Run the graph
-            final_state = self.graph.invoke(initial_state)
+            result = await self.compiled_graph.ainvoke(initial_state)
             
-            # Extract response
-            last_message = final_state["messages"][-1]
-            response_content = last_message.content if hasattr(last_message, 'content') else str(last_message)
+            # Extract the final message
+            final_message = result["messages"][-1]
+            response_content = final_message.content if hasattr(final_message, 'content') else str(final_message)
             
             return {
                 "response": response_content,
-                "state": {
-                    "current_agent": final_state.get("current_agent", ""),
-                    "supervisor_decision": final_state.get("supervisor_decision", ""),
-                    "rag_context": final_state.get("rag_context", {}),
-                    "iteration_count": final_state.get("iteration_count", 0)
-                },
-                "success": True
+                "agent_used": result.get("current_agent", "unknown"),
+                "rag_sources": result.get("rag_sources", 0),
+                "conversation_state": result.get("conversation_state", {})
             }
             
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
             return {
-                "response": "I apologize, but I encountered an error processing your request. Please try again.",
-                "state": conversation_state or {},
-                "success": False,
-                "error": str(e)
-            } 
+                "response": f"Sorry, I encountered an error: {str(e)}",
+                "agent_used": "error",
+                "rag_sources": 0,
+                "conversation_state": conversation_state
+            }
+
+# Global instance
+chess_multi_agent = ChessMultiAgentSystem() 
