@@ -8,8 +8,8 @@ from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
-from backend.agents.tools import ChessComPlayerTool, ChessComGameAnalyzerTool, ChessComRatingTrackerTool
-from backend.utils.logging import get_logger
+from agents.tools import ChessComPlayerTool, ChessComGameAnalyzerTool, ChessComRatingTrackerTool
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

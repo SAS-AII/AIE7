@@ -2,16 +2,16 @@ from fastapi import APIRouter, HTTPException, status
 from typing import Dict, Any, Optional
 import json
 
-from backend.models import (
+from models import (
     PlayerAnalysisRequest, 
     PGNAnalysisRequest, 
     RecentGamesRequest,
     AnalysisResponse,
     ErrorResponse
 )
-from backend.agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games
-from backend.utils.logging import get_logger
-from backend.utils.qdrant_client import (
+from agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games
+from utils.logging import get_logger
+from utils.qdrant_client import (
     create_qdrant_client, 
     ensure_chess_collection_exists, 
     upsert_game_vectors,

@@ -158,15 +158,32 @@ uv sync
 ```
 
 ### Running the Server
-```bash
-# Development server
-cd backend
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Production server
+**Option 1: From Project Root (Recommended)**
+```bash
+# Run from the project root directory
+python run_backend.py
+```
+
+**Option 2: From Backend Directory**
+```bash
+# Navigate to backend directory
+cd backend
+
+# Run with uvicorn
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Option 3: Production Server**
+```bash
 cd backend
 gunicorn -c gunicorn_conf.py main:app
 ```
+
+### Server URLs
+- **API Server**: http://localhost:8000
+- **Interactive Docs**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
 
 ## Production Deployment
 

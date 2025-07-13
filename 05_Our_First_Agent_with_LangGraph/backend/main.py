@@ -4,8 +4,8 @@ import uvicorn
 import os
 from dotenv import load_dotenv
 
-from backend.routers import health, chess_analysis
-from backend.utils.logging import get_logger
+from routers import health, chess_analysis
+from utils.logging import get_logger
 
 # Load environment variables from .env file for local development
 load_dotenv()

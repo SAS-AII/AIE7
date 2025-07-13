@@ -4,8 +4,8 @@ from typing import Dict, List, Any, Optional
 from langchain.tools import BaseTool
 from pydantic import Field
 
-from backend.utils.logging import get_logger
-from backend.utils.chess_parsers import parse_pgn_game, extract_game_stats, analyze_multiple_games
+from utils.logging import get_logger
+from utils.chess_parsers import parse_pgn_game, extract_game_stats, analyze_multiple_games
 
 logger = get_logger(__name__)
 
