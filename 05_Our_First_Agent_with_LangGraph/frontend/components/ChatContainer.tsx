@@ -30,6 +30,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
     enableAutoScroll 
   } = useAutoScroll();
 
+  const [conversationState, setConversationState] = useState<any>({});
+
   const { state, actions } = useChatStream({
     onError: (error) => {
       toast.error(error.message);
@@ -38,60 +40,46 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
       scrollToBottom();
     },
     onChunk: () => {
-      // Auto-scroll on each chunk if near bottom
       if (isAtBottom()) {
         scrollToBottom();
       }
     },
   });
 
-  const handlePlayerAnalysis = useCallback((username: string) => {
-    actions.analyzePlayerStream({
-      username,
-      openai_key: openaiKey,
-      langsmith_key: langsmithKey,
-      tavily_key: tavilyKey,
-      qdrant_api_key: qdrantKey,
-      qdrant_url: qdrantUrl,
-    });
-  }, [actions, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl]);
-
-  const handlePGNAnalysis = useCallback((pgn: string) => {
-    actions.analyzePGNStream({
-      pgn: pgn,
-      openai_key: openaiKey,
-      langsmith_key: langsmithKey,
-      tavily_key: tavilyKey,
-      qdrant_api_key: qdrantKey,
-      qdrant_url: qdrantUrl,
-    });
-  }, [actions, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl]);
-
-  const handleRecentGamesAnalysis = useCallback((username: string, num_games = 5) => {
-    actions.analyzeRecentGamesStream({
-      username,
-      num_games,
-      openai_key: openaiKey,
-      langsmith_key: langsmithKey,
-      tavily_key: tavilyKey,
-      qdrant_api_key: qdrantKey,
-      qdrant_url: qdrantUrl,
-    });
-  }, [actions, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl]);
-
-  const handleFileUpload = useCallback((file: File) => {
-    actions.uploadPNGFile(file, {
-      openai_key: openaiKey,
-      langsmith_key: langsmithKey,
-      tavily_key: tavilyKey,
-      qdrant_api_key: qdrantKey,
-      qdrant_url: qdrantUrl,
-    });
-  }, [actions, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl]);
+  const handleSendMessage = useCallback(async (message: string, file?: File) => {
+    // Optionally handle file upload as attachment (not implemented here)
+    // For now, just send the message to the backend /analyze/chat endpoint
+    try {
+      const response = await fetch('/analyze/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          state: conversationState,
+          openai_key: openaiKey,
+          langsmith_key: langsmithKey,
+          tavily_key: tavilyKey,
+          qdrant_api_key: qdrantKey,
+          qdrant_url: qdrantUrl,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      actions.addMessage({ role: 'user', content: message, timestamp: Date.now() });
+      actions.addMessage({ role: 'assistant', content: data.response, timestamp: Date.now() });
+      setConversationState(data.state);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to send message');
+    }
+  }, [conversationState, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl, actions]);
 
   const handleClearChat = useCallback(() => {
     if (confirm('Are you sure you want to clear all messages?')) {
       actions.clearMessages();
+      setConversationState({});
       toast.success('Chat cleared');
     }
   }, [actions]);
@@ -119,7 +107,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
                 </p>
               </div>
             </div>
-            
             <div className="flex items-center gap-2">
               {/* Clear chat button */}
               {!isEmpty && (
@@ -131,7 +118,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
                   <TrashIcon className="w-5 h-5" />
                 </button>
               )}
-              
               {/* Settings button */}
               <button
                 onClick={() => setIsSettingsOpen(true)}
@@ -144,7 +130,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
           </div>
         </div>
       </div>
-
       {/* Chat messages */}
       <div 
         ref={containerRef}
@@ -163,27 +148,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
                   Welcome to Chess Assistant
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-sm">
-                  Get AI-powered analysis of chess players, games, and positions. 
-                  Upload PGN files or enter Chess.com usernames to get started.
+                  Ask me anything about chess, your games, or Chess.com players. I can analyze games, profiles, and more. Just type your question below!
                 </p>
-                <div className="flex flex-col gap-2 text-sm text-gray-600 dark:text-gray-400">
-                  <div className="flex items-center gap-2">
-                    <span>📊</span>
-                    <span>Analyze Chess.com players and their stats</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span>♟️</span>
-                    <span>Review recent games and find patterns</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span>🎯</span>
-                    <span>Get insights from PGN game files</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span>📸</span>
-                    <span>Upload PNG images for position analysis</span>
-                  </div>
-                </div>
               </div>
             </div>
           ) : (
@@ -199,7 +165,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
           )}
         </div>
       </div>
-
       {/* Scroll to bottom button */}
       {!isAtBottom() && (
         <div className="absolute bottom-20 right-4 z-10">
@@ -212,20 +177,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
           </button>
         </div>
       )}
-
       {/* Chat input */}
       <div className="flex-shrink-0">
         <ChatInput
-          onPlayerAnalysis={handlePlayerAnalysis}
-          onPGNAnalysis={handlePGNAnalysis}
-          onRecentGamesAnalysis={handleRecentGamesAnalysis}
-          onFileUpload={handleFileUpload}
+          onSendMessage={handleSendMessage}
           onStop={actions.stopStreaming}
           isLoading={state.isLoading}
           isStreaming={state.isStreaming}
         />
       </div>
-
       {/* Settings modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
