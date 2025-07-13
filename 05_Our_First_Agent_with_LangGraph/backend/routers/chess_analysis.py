@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
-from typing import Dict, Any, Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
 import json
 
 from models import (
@@ -9,7 +10,7 @@ from models import (
     AnalysisResponse,
     ErrorResponse
 )
-from agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games
+from agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games, chat_with_agent
 from utils.logging import get_logger
 from utils.qdrant_client import (
     create_qdrant_client, 
@@ -21,7 +22,39 @@ from utils.qdrant_client import (
 
 logger = get_logger(__name__)
 
-router = APIRouter(tags=["chess-analysis"])
+router = APIRouter(prefix="/analyze", tags=["Chess Analysis"])
+
+class ChatRequest(BaseModel):
+    message: str
+    state: Optional[Dict[str, Any]] = None
+    openai_key: str
+    langsmith_key: str
+    tavily_key: str
+    qdrant_api_key: Optional[str] = None
+    qdrant_url: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    response: str
+    state: Dict[str, Any]
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    """
+    Conversational endpoint for Chess Assistant. Accepts a message and conversation state, returns a natural AI response.
+    """
+    try:
+        result = chat_with_agent(
+            message=request.message,
+            state=request.state or {},
+            openai_key=request.openai_key,
+            langsmith_key=request.langsmith_key,
+            tavily_key=request.tavily_key,
+            qdrant_api_key=request.qdrant_api_key,
+            qdrant_url=request.qdrant_url,
+        )
+        return ChatResponse(response=result["response"], state=result["state"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/player", response_model=AnalysisResponse)
 async def analyze_chess_player(request: PlayerAnalysisRequest):

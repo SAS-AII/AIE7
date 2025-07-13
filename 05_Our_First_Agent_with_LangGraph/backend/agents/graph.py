@@ -205,3 +205,31 @@ def analyze_recent_games(username: Optional[str], num_games: int, openai_key: st
             "success": False,
             "error": error_msg
         } 
+
+def chat_with_agent(message: str, state: Optional[Dict[str, Any]], openai_key: str, langsmith_key: str, tavily_key: str, qdrant_api_key: Optional[str] = None, qdrant_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Conversational entry point for Chess Assistant. Handles intent detection, slot-filling, and tool selection.
+    """
+    # Set up environment for this request
+    os.environ["OPENAI_API_KEY"] = openai_key
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_key
+    os.environ["LANGCHAIN_PROJECT"] = f"Chess-Chat-{uuid4().hex[0:8]}"
+    # Conversation state
+    conversation = state or {"messages": []}
+    # Add user message
+    conversation["messages"].append(HumanMessage(content=message))
+    # Build agent with tools
+    model = ChatOpenAI(model="gpt-4", temperature=0)
+    model_with_tools = model.bind_tools(chess_tool_belt)
+    # Run the agent
+    agent_graph = StateGraph(ChessAgentState)
+    agent_graph.add_node("agent", lambda s: {"messages": [model_with_tools.invoke(s["messages"])]})
+    agent_graph.set_entry_point("agent")
+    agent_graph.add_conditional_edges("agent", lambda s: END)
+    compiled_graph = agent_graph.compile()
+    result = compiled_graph.invoke({"messages": conversation["messages"]})
+    ai_message = result["messages"][-1]
+    # Update state
+    conversation["messages"].append(ai_message)
+    return {"response": ai_message.content, "state": conversation} 

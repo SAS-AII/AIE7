@@ -29,7 +29,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router)
-app.include_router(chess_analysis.router, prefix="/analyze")
+app.include_router(chess_analysis.router)
 
 @app.on_event("startup")
 async def startup_event():

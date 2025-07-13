@@ -48,9 +48,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
   const handlePlayerAnalysis = useCallback((username: string) => {
     actions.analyzePlayerStream({
       username,
-      openai_api_key: openaiKey,
-      langsmith_api_key: langsmithKey,
-      tavily_api_key: tavilyKey,
+      openai_key: openaiKey,
+      langsmith_key: langsmithKey,
+      tavily_key: tavilyKey,
       qdrant_api_key: qdrantKey,
       qdrant_url: qdrantUrl,
     });
@@ -58,22 +58,22 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
 
   const handlePGNAnalysis = useCallback((pgn: string) => {
     actions.analyzePGNStream({
-      pgn_content: pgn,
-      openai_api_key: openaiKey,
-      langsmith_api_key: langsmithKey,
-      tavily_api_key: tavilyKey,
+      pgn: pgn,
+      openai_key: openaiKey,
+      langsmith_key: langsmithKey,
+      tavily_key: tavilyKey,
       qdrant_api_key: qdrantKey,
       qdrant_url: qdrantUrl,
     });
   }, [actions, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl]);
 
-  const handleRecentGamesAnalysis = useCallback((username: string, limit = 5) => {
+  const handleRecentGamesAnalysis = useCallback((username: string, num_games = 5) => {
     actions.analyzeRecentGamesStream({
       username,
-      limit,
-      openai_api_key: openaiKey,
-      langsmith_api_key: langsmithKey,
-      tavily_api_key: tavilyKey,
+      num_games,
+      openai_key: openaiKey,
+      langsmith_key: langsmithKey,
+      tavily_key: tavilyKey,
       qdrant_api_key: qdrantKey,
       qdrant_url: qdrantUrl,
     });
@@ -81,9 +81,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
 
   const handleFileUpload = useCallback((file: File) => {
     actions.uploadPNGFile(file, {
-      openai_api_key: openaiKey,
-      langsmith_api_key: langsmithKey,
-      tavily_api_key: tavilyKey,
+      openai_key: openaiKey,
+      langsmith_key: langsmithKey,
+      tavily_key: tavilyKey,
       qdrant_api_key: qdrantKey,
       qdrant_url: qdrantUrl,
     });

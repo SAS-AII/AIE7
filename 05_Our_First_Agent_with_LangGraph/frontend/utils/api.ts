@@ -7,9 +7,9 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
-// Updated interfaces to match backend Pydantic models
+// Updated interfaces to match backend Pydantic models exactly
 export interface PlayerAnalysisRequest {
-  username: string;
+  username?: string; // Optional - will be requested if missing
   openai_key: string;
   langsmith_key: string;
   tavily_key: string;
@@ -27,13 +27,17 @@ export interface PGNAnalysisRequest {
 }
 
 export interface RecentGamesRequest {
-  username: string;
+  username?: string; // Optional - will be requested if missing
   num_games: number;
   openai_key: string;
   langsmith_key: string;
   tavily_key: string;
   qdrant_api_key?: string;
   qdrant_url?: string;
+}
+
+export interface HealthResponse {
+  status: string;
 }
 
 export interface ApiError {
@@ -140,9 +144,9 @@ export const analyzeRecentGames = async (
 export const uploadPNG = async (
   file: File,
   apiKeys: {
-    openai_api_key?: string;
-    langsmith_api_key?: string;
-    tavily_api_key?: string;
+    openai_key?: string;
+    langsmith_key?: string;
+    tavily_key?: string;
     qdrant_api_key?: string;
     qdrant_url?: string;
   }
@@ -151,14 +155,14 @@ export const uploadPNG = async (
   formData.append('file', file);
 
   // Add API keys to form data
-  if (apiKeys.openai_api_key) {
-    formData.append('openai_api_key', apiKeys.openai_api_key);
+  if (apiKeys.openai_key) {
+    formData.append('openai_key', apiKeys.openai_key);
   }
-  if (apiKeys.langsmith_api_key) {
-    formData.append('langsmith_api_key', apiKeys.langsmith_api_key);
+  if (apiKeys.langsmith_key) {
+    formData.append('langsmith_key', apiKeys.langsmith_key);
   }
-  if (apiKeys.tavily_api_key) {
-    formData.append('tavily_api_key', apiKeys.tavily_api_key);
+  if (apiKeys.tavily_key) {
+    formData.append('tavily_key', apiKeys.tavily_key);
   }
   if (apiKeys.qdrant_api_key) {
     formData.append('qdrant_api_key', apiKeys.qdrant_api_key);
@@ -198,17 +202,14 @@ export const readStream = async (
   try {
     while (true) {
       const { done, value } = await reader.read();
+      if (done) break;
       
-      if (done) {
-        onComplete?.();
-        break;
-      }
-
       const chunk = decoder.decode(value, { stream: true });
       onChunk(chunk);
     }
+    onComplete?.();
   } catch (error) {
-    onError?.(error instanceof Error ? error : new Error('Stream reading failed'));
+    onError?.(error instanceof Error ? error : new Error('Stream error'));
   } finally {
     reader.releaseLock();
   }

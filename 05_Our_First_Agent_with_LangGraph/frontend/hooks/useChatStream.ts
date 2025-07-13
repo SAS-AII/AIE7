@@ -147,16 +147,16 @@ export const useChatStream = (options: UseChatStreamOptions = {}) => {
   }, [handleStreamResponse]);
 
   const analyzeRecentGamesStream = useCallback(async (request: RecentGamesRequest) => {
-    const userMessage = `Analyze recent games for ${request.username} (limit: ${request.limit || 5})`;
+    const userMessage = `Analyze recent games for ${request.username} (limit: ${request.num_games || 5})`;
     await handleStreamResponse(analyzeRecentGames(request), userMessage);
   }, [handleStreamResponse]);
 
   const uploadPNGFile = useCallback(async (
     file: File,
     apiKeys: {
-      openai_api_key?: string;
-      langsmith_api_key?: string;
-      tavily_api_key?: string;
+      openai_key?: string;
+      langsmith_key?: string;
+      tavily_key?: string;
       qdrant_api_key?: string;
       qdrant_url?: string;
     }

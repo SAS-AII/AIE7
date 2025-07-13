@@ -39,3 +39,54 @@
 2025-07-13 05:17:44 | DEBUG    | routers.health:health_check:11 - Health check requested
 2025-07-13 05:18:14 | DEBUG    | routers.health:health_check:11 - Health check requested
 2025-07-13 05:18:44 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:19:15 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:19:20 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:19:20 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:20:09 | INFO     | main:shutdown_event:43 - Chess.com LangGraph Agent API shutting down
+2025-07-13 05:20:14 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
+2025-07-13 05:20:14 | INFO     | main:startup_event:39 - Qdrant integration available: True
+2025-07-13 05:20:14 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:20:15 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:20:45 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:21:15 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:21:26 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:21:56 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:22:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:22:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:22:15 | INFO     | routers.chess_analysis:analyze_chess_player:38 - Player analysis request for: hi
+2025-07-13 05:22:15 | INFO     | agents.graph:analyze_player:92 - Starting player analysis for: hi
+2025-07-13 05:22:15 | INFO     | agents.graph:create_chess_agent_graph:36 - Creating chess agent with project: Chess-Agent-8a9c6dca
+2025-07-13 05:22:16 | INFO     | agents.graph:create_chess_agent_graph:87 - Chess agent graph compiled successfully
+2025-07-13 05:22:16 | DEBUG    | agents.graph:call_model:45 - Calling model with 1 messages
+2025-07-13 05:22:18 | DEBUG    | agents.graph:should_continue:55 - Tool calls detected, routing to action node
+2025-07-13 05:22:18 | INFO     | agents.tools:_run:20 - Fetching player data for: hi
+2025-07-13 05:22:18 | DEBUG    | agents.graph:call_model:45 - Calling model with 3 messages
+2025-07-13 05:22:21 | DEBUG    | agents.graph:should_continue:59 - No tool calls, ending workflow
+2025-07-13 05:22:21 | INFO     | agents.graph:analyze_player:117 - Player analysis completed for: hi
+2025-07-13 05:22:21 | INFO     | routers.chess_analysis:analyze_chess_player:71 - Player analysis completed successfully for: hi
+2025-07-13 05:22:43 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:23:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:23:43 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:24:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:24:44 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:25:14 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:25:44 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:26:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:26:43 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:27:13 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:27:44 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:28:14 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:28:36 | INFO     | main:shutdown_event:43 - Chess.com LangGraph Agent API shutting down
+2025-07-13 05:28:55 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
+2025-07-13 05:28:55 | INFO     | main:startup_event:39 - Qdrant integration available: True
+2025-07-13 05:28:58 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
+2025-07-13 05:28:58 | INFO     | main:startup_event:39 - Qdrant integration available: True
+2025-07-13 05:28:58 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:29:00 | INFO     | main:shutdown_event:43 - Chess.com LangGraph Agent API shutting down
+2025-07-13 05:29:03 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
+2025-07-13 05:29:03 | INFO     | main:startup_event:39 - Qdrant integration available: True
+2025-07-13 05:29:14 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:29:44 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:30:14 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:30:17 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 05:30:17 | DEBUG    | routers.health:health_check:11 - Health check requested
