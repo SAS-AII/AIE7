@@ -1,3 +1,4 @@
+import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from typing import List, Dict, Any, Optional
@@ -7,15 +8,22 @@ from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-def create_qdrant_client(api_key: str, url: str = "https://cloud.qdrant.io") -> QdrantClient:
-    """Create a configured Qdrant client for the request"""
+def create_qdrant_client(api_key: Optional[str] = None, url: Optional[str] = None) -> QdrantClient:
+    """Create a configured Qdrant client using environment variables or provided credentials"""
     try:
+        # Check environment variables first, then fall back to parameters
+        qdrant_api_key = api_key or os.getenv("QDRANT_API_KEY")
+        qdrant_url = url or os.getenv("QDRANT_URL", "https://cloud.qdrant.io")
+        
+        if not qdrant_api_key:
+            raise ValueError("Qdrant API key not found in environment variables or request parameters")
+        
         client = QdrantClient(
-            url=url,
-            api_key=api_key,
+            url=qdrant_url,
+            api_key=qdrant_api_key,
             timeout=30
         )
-        logger.info("Qdrant client created successfully")
+        logger.info(f"Qdrant client created successfully for URL: {qdrant_url}")
         return client
     except Exception as e:
         logger.error(f"Failed to create Qdrant client: {e}")
@@ -145,4 +153,15 @@ def delete_game_vectors(
         
     except Exception as e:
         logger.error(f"Failed to delete vectors: {e}")
-        return False 
+        return False
+
+def is_qdrant_available() -> bool:
+    """Check if Qdrant is available via environment variables or request parameters"""
+    return bool(os.getenv("QDRANT_API_KEY"))
+
+def get_qdrant_config() -> Dict[str, Optional[str]]:
+    """Get Qdrant configuration from environment variables"""
+    return {
+        "api_key": os.getenv("QDRANT_API_KEY"),
+        "url": os.getenv("QDRANT_URL", "https://cloud.qdrant.io")
+    } 

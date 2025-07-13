@@ -2,6 +2,43 @@
 
 Production-ready FastAPI backend for chess analysis using LangGraph multi-agent system with Chess.com API integration.
 
+## Environment Variables Configuration
+
+### Local Development (.env file)
+
+Create a `.env` file in the backend directory with the following variables:
+
+```env
+# Required API Keys
+OPENAI_API_KEY=sk-your-openai-api-key-here
+LANGSMITH_API_KEY=lsv2_pt_your-langsmith-api-key-here  
+TAVILY_API_KEY=tvly-your-tavily-api-key-here
+
+# Optional: Qdrant Vector Database
+# If not provided, will use request parameters instead
+QDRANT_API_KEY=your-qdrant-api-key-here
+QDRANT_URL=https://your-cluster.qdrant.io
+
+# LangSmith Configuration
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=Chess-Agent-Production
+```
+
+### Vercel Deployment
+
+In your Vercel dashboard, set these environment variables:
+- `QDRANT_API_KEY` (your Qdrant API key)
+- `QDRANT_URL` (optional, defaults to https://cloud.qdrant.io)
+
+### Qdrant Configuration Priority
+
+The system checks for Qdrant configuration in this order:
+1. **Environment variables** (QDRANT_API_KEY, QDRANT_URL)
+2. **Request parameters** (qdrant_api_key, qdrant_url in JSON body)
+3. **Graceful fallback** (continues without vector storage if neither available)
+
+This ensures seamless operation whether deployed on Vercel (using env vars) or testing locally with different API keys.
+
 ## Architecture Overview
 
 This backend implements a sophisticated chess analysis system using LangGraph to orchestrate multiple specialized tools:
@@ -63,7 +100,7 @@ backend/
 - `GET /health` - Returns system status
 
 ### Chess Analysis
-All endpoints accept API keys in the request body for security:
+All endpoints automatically detect Qdrant availability from environment variables:
 
 #### 1. Player Analysis
 ```bash
@@ -75,11 +112,11 @@ Content-Type: application/json
   "openai_key": "sk-...",
   "langsmith_key": "...",
   "tavily_key": "...",
-  "qdrant_api_key": "..." (optional)
+  "qdrant_api_key": "..." (optional if QDRANT_API_KEY env var is set)
 }
 ```
 
-#### 2. PGN Game Analysis
+#### 2. PGN Game Analysis  
 ```bash
 POST /analyze/pgn
 Content-Type: application/json
@@ -89,7 +126,7 @@ Content-Type: application/json
   "openai_key": "sk-...",
   "langsmith_key": "...",
   "tavily_key": "...",
-  "qdrant_api_key": "..." (optional)
+  "qdrant_api_key": "..." (optional if QDRANT_API_KEY env var is set)
 }
 ```
 
@@ -107,24 +144,7 @@ Content-Type: application/json
 }
 ```
 
-## Environment Variables
-
-Create a `.env` file with the following variables:
-
-```env
-# Required API Keys
-OPENAI_API_KEY=sk-your-openai-api-key-here
-LANGSMITH_API_KEY=your-langsmith-api-key-here
-TAVILY_API_KEY=your-tavily-api-key-here
-
-# Optional: Qdrant Vector Database
-QDRANT_API_KEY=your-qdrant-api-key-here
-QDRANT_URL=https://your-cluster.qdrant.io
-
-# LangSmith Configuration
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=Chess-Agent-Production
-```
+All endpoints return a `qdrant_available` field in the response indicating whether vector storage is active.
 
 ## Local Development
 
@@ -155,10 +175,9 @@ gunicorn -c gunicorn_conf.py main:app
 # Deploy to Vercel
 vercel deploy
 
-# Environment variables in Vercel dashboard:
-# - OPENAI_API_KEY
-# - LANGSMITH_API_KEY  
-# - TAVILY_API_KEY
+# Set environment variables in Vercel dashboard:
+# - QDRANT_API_KEY (for vector storage)
+# - QDRANT_URL (optional, defaults to cloud.qdrant.io)
 ```
 
 ### Docker Deployment
@@ -211,6 +230,7 @@ Request → Agent → ChessComGameAnalyzerTool → Agent → Response
 - **Input Validation**: Pydantic models for all requests/responses
 - **Error Handling**: Comprehensive error handling with proper HTTP status codes
 - **CORS Support**: Permissive CORS for public API usage
+- **Environment Detection**: Automatic Qdrant configuration from env vars or request params
 
 ### Performance Optimizations
 - **Gunicorn Workers**: Calculated as `(CPU * 2) + 1`
@@ -246,12 +266,48 @@ curl -X POST "http://localhost:8000/analyze/pgn" \
   }'
 ```
 
+### Testing with Qdrant
+
+If you have a Qdrant API key, you can test vector storage:
+
+**Option 1: Environment Variables (Recommended)**
+```bash
+# Set in .env file
+export QDRANT_API_KEY=your-key-here
+export QDRANT_URL=https://your-cluster.qdrant.io
+
+# Then make requests normally (no need to include qdrant_api_key in JSON)
+curl -X POST "http://localhost:8000/analyze/pgn" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pgn": "1. e4 e5...",
+    "openai_key": "sk-...",
+    "langsmith_key": "...",
+    "tavily_key": "..."
+  }'
+```
+
+**Option 2: Request Parameters**
+```bash
+curl -X POST "http://localhost:8000/analyze/pgn" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pgn": "1. e4 e5...",
+    "openai_key": "sk-...",
+    "langsmith_key": "...",
+    "tavily_key": "...",
+    "qdrant_api_key": "your-key-here",
+    "qdrant_url": "https://your-cluster.qdrant.io"
+  }'
+```
+
 ## Monitoring
 
 - **Health Endpoint**: `/health` for uptime monitoring
 - **LangSmith Dashboard**: Full tracing of agent workflows
 - **Structured Logs**: JSON logs with request correlation IDs
 - **Error Tracking**: Detailed error logs with stack traces
+- **Qdrant Status**: Automatic logging of vector database availability
 
 ## Dependencies
 
@@ -260,4 +316,5 @@ curl -X POST "http://localhost:8000/analyze/pgn" \
 - **LangSmith**: Observability and tracing
 - **python-chess**: PGN parsing and game analysis
 - **Qdrant**: Vector database for game similarity
-- **Gunicorn**: Production WSGI server 
+- **Gunicorn**: Production WSGI server
+- **python-dotenv**: Environment variable management 

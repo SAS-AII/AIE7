@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 
 from backend.models import (
@@ -14,7 +14,9 @@ from backend.utils.logging import get_logger
 from backend.utils.qdrant_client import (
     create_qdrant_client, 
     ensure_chess_collection_exists, 
-    upsert_game_vectors
+    upsert_game_vectors,
+    is_qdrant_available,
+    get_qdrant_config
 )
 
 logger = get_logger(__name__)
@@ -31,6 +33,7 @@ async def analyze_chess_player(request: PlayerAnalysisRequest):
     - openai_key: OpenAI API key
     - langsmith_key: LangSmith API key
     - tavily_key: Tavily API key (reserved for future use)
+    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
     """
     logger.info(f"Player analysis request for: {request.username}")
     
@@ -59,7 +62,8 @@ async def analyze_chess_player(request: PlayerAnalysisRequest):
         response_data = {
             "username": request.username,
             "analysis_type": "player_profile",
-            "message_count": result.get("message_count", 0)
+            "message_count": result.get("message_count", 0),
+            "qdrant_available": is_qdrant_available() or bool(request.qdrant_api_key)
         }
         
         logger.info(f"Player analysis completed successfully for: {request.username}")
@@ -90,7 +94,7 @@ async def analyze_pgn_game(request: PGNAnalysisRequest):
     - openai_key: OpenAI API key  
     - langsmith_key: LangSmith API key
     - tavily_key: Tavily API key (reserved for future use)
-    - qdrant_api_key: Optional Qdrant API key for vector storage
+    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
     """
     logger.info("PGN analysis request received")
     
@@ -116,9 +120,11 @@ async def analyze_pgn_game(request: PGNAnalysisRequest):
                 detail=f"Analysis failed: {result.get('error')}"
             )
         
-        # Optional: Store in Qdrant if API key provided
+        # Check if Qdrant is available (env vars or request params)
         vector_storage_result = None
-        if request.qdrant_api_key:
+        qdrant_available = is_qdrant_available() or bool(request.qdrant_api_key)
+        
+        if qdrant_available:
             try:
                 vector_storage_result = await _store_pgn_in_qdrant(
                     request.pgn, 
@@ -133,7 +139,8 @@ async def analyze_pgn_game(request: PGNAnalysisRequest):
         response_data = {
             "analysis_type": "pgn_game",
             "message_count": result.get("message_count", 0),
-            "vector_storage": vector_storage_result is not None
+            "vector_storage": vector_storage_result is not None,
+            "qdrant_available": qdrant_available
         }
         
         logger.info("PGN analysis completed successfully")
@@ -165,6 +172,7 @@ async def analyze_recent_games_endpoint(request: RecentGamesRequest):
     - openai_key: OpenAI API key
     - langsmith_key: LangSmith API key  
     - tavily_key: Tavily API key (reserved for future use)
+    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
     """
     logger.info(f"Recent games analysis request for: {request.username} ({request.num_games} games)")
     
@@ -195,7 +203,8 @@ async def analyze_recent_games_endpoint(request: RecentGamesRequest):
             "username": request.username,
             "num_games_requested": request.num_games,
             "analysis_type": "recent_games",
-            "message_count": result.get("message_count", 0)
+            "message_count": result.get("message_count", 0),
+            "qdrant_available": is_qdrant_available() or bool(request.qdrant_api_key)
         }
         
         logger.info(f"Recent games analysis completed for: {request.username}")
@@ -219,13 +228,13 @@ async def analyze_recent_games_endpoint(request: RecentGamesRequest):
 async def _store_pgn_in_qdrant(
     pgn_content: str, 
     analysis_summary: str, 
-    qdrant_api_key: str,
-    qdrant_url: str
+    request_api_key: Optional[str] = None,
+    request_url: Optional[str] = None
 ) -> bool:
     """Store PGN game and analysis in Qdrant vector database"""
     try:
-        # Create Qdrant client
-        qdrant_client = create_qdrant_client(qdrant_api_key, qdrant_url)
+        # Create Qdrant client (checks env vars first, then request params)
+        qdrant_client = create_qdrant_client(request_api_key, request_url)
         
         # Ensure collection exists
         if not ensure_chess_collection_exists(qdrant_client):

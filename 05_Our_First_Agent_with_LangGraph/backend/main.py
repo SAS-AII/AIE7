@@ -1,9 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import os
+from dotenv import load_dotenv
 
 from backend.routers import health, chess_analysis
 from backend.utils.logging import get_logger
+
+# Load environment variables from .env file for local development
+load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -29,6 +34,9 @@ app.include_router(chess_analysis.router, prefix="/analyze")
 @app.on_event("startup")
 async def startup_event():
     logger.info("Chess.com LangGraph Agent API starting up")
+    # Log Qdrant availability for debugging
+    qdrant_available = bool(os.getenv("QDRANT_API_KEY"))
+    logger.info(f"Qdrant integration available: {qdrant_available}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
