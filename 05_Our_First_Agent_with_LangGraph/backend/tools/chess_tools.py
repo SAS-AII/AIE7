@@ -112,11 +112,11 @@ def analyze_pgn(pgn_content: str) -> str:
             "Chess Game Analysis",
             "=" * 20,
             "",
-            f"White: {game_data.get('White', 'Unknown')}",
-            f"Black: {game_data.get('Black', 'Unknown')}",
-            f"Result: {game_data.get('Result', 'Unknown')}",
-            f"Date: {game_data.get('Date', 'Unknown')}",
-            f"Event: {game_data.get('Event', 'Unknown')}",
+            f"White: {game_data.headers.get('White', 'Unknown')}",
+            f"Black: {game_data.headers.get('Black', 'Unknown')}",
+            f"Result: {game_data.headers.get('Result', 'Unknown')}",
+            f"Date: {game_data.headers.get('Date', 'Unknown')}",
+            f"Event: {game_data.headers.get('Event', 'Unknown')}",
             "",
             "Game Statistics:",
             f"  Total moves: {stats.get('total_moves', 0)}",
@@ -139,16 +139,18 @@ def get_recent_games(username: str, limit: int = 10) -> str:
     
     Args:
         username: Chess.com username
-        limit: Maximum number of games to fetch (default: 10)
+        limit: Maximum number of games to fetch (default: 10, max: 20)
         
     Returns:
         String containing information about recent games
     """
     logger.info(f"Fetching recent games for: {username}")
     
+    # Ensure limit doesn't exceed 20
+    limit = min(limit, 20)
+    
     try:
         import datetime
-        from utils.chess_parsers import analyze_multiple_games
         
         # Get current date to fetch recent games
         now = datetime.datetime.now()
@@ -183,18 +185,43 @@ def get_recent_games(username: str, limit: int = 10) -> str:
         games_data.sort(key=lambda x: x.get("end_time", 0), reverse=True)
         games_data = games_data[:limit]
         
-        # Analyze the games
-        analysis = analyze_multiple_games(games_data)
+        # Calculate basic statistics from the games data
+        total_games = len(games_data)
+        wins = sum(1 for game in games_data if game.get("white", {}).get("username") == username and game.get("white", {}).get("result") == "win")
+        wins += sum(1 for game in games_data if game.get("black", {}).get("username") == username and game.get("black", {}).get("result") == "win")
+        win_rate = (wins / total_games * 100) if total_games > 0 else 0
+        
+        # Count time controls
+        time_controls = {}
+        for game in games_data:
+            tc = game.get("time_control", "Unknown")
+            time_controls[tc] = time_controls.get(tc, 0) + 1
+        
+        most_played_time_control = max(time_controls.items(), key=lambda x: x[1])[0] if time_controls else "Unknown"
+        
+        # Calculate average rating
+        ratings = []
+        for game in games_data:
+            if game.get("white", {}).get("username") == username:
+                rating = game.get("white", {}).get("rating")
+                if rating:
+                    ratings.append(rating)
+            elif game.get("black", {}).get("username") == username:
+                rating = game.get("black", {}).get("rating")
+                if rating:
+                    ratings.append(rating)
+        
+        average_rating = sum(ratings) / len(ratings) if ratings else "Unknown"
         
         # Format response
         response_lines = [
             f"Recent Games for {username}",
             "=" * 30,
             "",
-            f"Total games analyzed: {len(games_data)}",
-            f"Win rate: {analysis.get('win_rate', 0):.1f}%",
-            f"Most played time control: {analysis.get('most_played_time_control', 'Unknown')}",
-            f"Average rating: {analysis.get('average_rating', 'Unknown')}",
+            f"Total games analyzed: {total_games}",
+            f"Win rate: {win_rate:.1f}%",
+            f"Most played time control: {most_played_time_control}",
+            f"Average rating: {average_rating if isinstance(average_rating, str) else f'{average_rating:.0f}'}",
             "",
             "Recent game results:"
         ]

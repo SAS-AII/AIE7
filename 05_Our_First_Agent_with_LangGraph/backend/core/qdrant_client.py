@@ -13,7 +13,7 @@ class ChessQdrantClient:
     
     def __init__(self, url: Optional[str] = None, api_key: Optional[str] = None):
         self.client = None
-        self.collection_name = "chess_knowledge"
+        self.collection_name = "knowledge_base"
         self.url = url
         self.api_key = api_key
         self._initialize_client()
