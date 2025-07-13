@@ -1,1 +1,1 @@
-# LangGraph agents package 
+"""Multi-agent system for chess assistance""" 

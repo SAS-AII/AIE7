@@ -1,290 +1,218 @@
-from fastapi import APIRouter, HTTPException, status
+"""Chess analysis API endpoints using multi-agent LangGraph system"""
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
-import json
+from typing import Dict, Any, Optional
+import logging
 
-from models import (
-    PlayerAnalysisRequest, 
-    PGNAnalysisRequest, 
-    RecentGamesRequest,
-    AnalysisResponse,
-    ErrorResponse
-)
-from agents.graph import analyze_player, analyze_pgn_game, analyze_recent_games, chat_with_agent
-from utils.logging import get_logger
-from utils.qdrant_client import (
-    create_qdrant_client, 
-    ensure_chess_collection_exists, 
-    upsert_game_vectors,
-    is_qdrant_available,
-    get_qdrant_config
-)
+from agents.multi_agent_graph import ChessMultiAgentSystem
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analyze", tags=["Chess Analysis"])
-
+# Request models
 class ChatRequest(BaseModel):
-    message: str
-    state: Optional[Dict[str, Any]] = None
-    openai_key: str
-    langsmith_key: str
-    tavily_key: str
-    qdrant_api_key: Optional[str] = None
-    qdrant_url: Optional[str] = None
+    message: str = Field(..., description="User's chess-related message")
+    state: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Conversation state")
+    openai_key: str = Field(..., description="OpenAI API key")
+    langsmith_key: Optional[str] = Field(None, description="LangSmith API key for tracing")
+    tavily_key: Optional[str] = Field(None, description="Tavily API key for web search")
+    qdrant_api_key: Optional[str] = Field(None, description="Qdrant API key")
+    qdrant_url: Optional[str] = Field(None, description="Qdrant URL")
 
+class PlayerAnalysisRequest(BaseModel):
+    username: Optional[str] = Field(None, description="Chess.com username")
+    openai_key: str = Field(..., description="OpenAI API key")
+    langsmith_key: Optional[str] = Field(None, description="LangSmith API key")
+    tavily_key: Optional[str] = Field(None, description="Tavily API key")
+    qdrant_api_key: Optional[str] = Field(None, description="Qdrant API key")
+    qdrant_url: Optional[str] = Field(None, description="Qdrant URL")
+
+class PGNAnalysisRequest(BaseModel):
+    pgn: str = Field(..., description="PGN string of the chess game")
+    openai_key: str = Field(..., description="OpenAI API key")
+    langsmith_key: Optional[str] = Field(None, description="LangSmith API key")
+    tavily_key: Optional[str] = Field(None, description="Tavily API key")
+    qdrant_api_key: Optional[str] = Field(None, description="Qdrant API key")
+    qdrant_url: Optional[str] = Field(None, description="Qdrant URL")
+
+class RecentGamesRequest(BaseModel):
+    username: Optional[str] = Field(None, description="Chess.com username")
+    num_games: int = Field(default=5, description="Number of recent games to analyze")
+    openai_key: str = Field(..., description="OpenAI API key")
+    langsmith_key: Optional[str] = Field(None, description="LangSmith API key")
+    tavily_key: Optional[str] = Field(None, description="Tavily API key")
+    qdrant_api_key: Optional[str] = Field(None, description="Qdrant API key")
+    qdrant_url: Optional[str] = Field(None, description="Qdrant URL")
+
+# Response models
 class ChatResponse(BaseModel):
-    response: str
-    state: Dict[str, Any]
+    response: str = Field(..., description="Chess assistant's response")
+    state: Dict[str, Any] = Field(..., description="Updated conversation state")
+    agent_used: Optional[str] = Field(None, description="Which agent handled the request")
+    rag_sources: Optional[int] = Field(None, description="Number of RAG sources used")
+
+router = APIRouter(prefix="/analyze", tags=["chess-analysis"])
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_with_chess_assistant(request: ChatRequest):
     """
-    Conversational endpoint for Chess Assistant. Accepts a message and conversation state, returns a natural AI response.
+    Chat with the multi-agent chess assistant
+    
+    - Uses supervisor agent to route to appropriate specialist
+    - RAG agent for chess knowledge from documents
+    - Chess agent for Chess.com data and game analysis
+    - Instant response with proper state management
     """
     try:
-        result = chat_with_agent(
+        logger.info(f"Processing chat message: {request.message[:50]}...")
+        
+        # Validate required API key
+        if not request.openai_key:
+            raise HTTPException(
+                status_code=400,
+                detail="OpenAI API key is required for chess assistance"
+            )
+        
+        # Initialize multi-agent system
+        chess_system = ChessMultiAgentSystem(
+            openai_key=request.openai_key,
+            langsmith_key=request.langsmith_key,
+            tavily_key=request.tavily_key
+        )
+        
+        # Process message through multi-agent system
+        result = await chess_system.process_message(
             message=request.message,
-            state=request.state or {},
+            conversation_state=request.state
+        )
+        
+        if not result.get("success", False):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing message: {result.get('error', 'Unknown error')}"
+            )
+        
+        # Extract agent and RAG information
+        agent_used = result["state"].get("current_agent", "unknown")
+        rag_sources = 0
+        if "rag_context" in result["state"]:
+            rag_sources = result["state"]["rag_context"].get("context_count", 0)
+        
+        logger.info(f"Chat processed by {agent_used} agent with {rag_sources} RAG sources")
+        
+        return ChatResponse(
+            response=result["response"],
+            state=result["state"],
+            agent_used=agent_used,
+            rag_sources=rag_sources if rag_sources > 0 else None
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in chat endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error processing chat request"
+        )
+
+@router.post("/player")
+async def analyze_player(request: PlayerAnalysisRequest):
+    """
+    Analyze a Chess.com player using multi-agent system
+    
+    - Legacy endpoint that routes to chat system
+    - Maintains backward compatibility
+    """
+    try:
+        if not request.username:
+            return {
+                "response": "Please provide a Chess.com username to analyze. For example: 'Analyze player hikaru'",
+                "state": {}
+            }
+        
+        # Convert to chat request
+        chat_message = f"Analyze the Chess.com player {request.username}. Provide detailed statistics and insights."
+        
+        chat_request = ChatRequest(
+            message=chat_message,
             openai_key=request.openai_key,
             langsmith_key=request.langsmith_key,
             tavily_key=request.tavily_key,
             qdrant_api_key=request.qdrant_api_key,
-            qdrant_url=request.qdrant_url,
+            qdrant_url=request.qdrant_url
         )
-        return ChatResponse(response=result["response"], state=result["state"])
+        
+        return await chat_with_chess_assistant(chat_request)
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/player", response_model=AnalysisResponse)
-async def analyze_chess_player(request: PlayerAnalysisRequest):
-    """
-    Analyze a Chess.com player's profile, ratings, and performance
-    
-    Requires:
-    - username: Chess.com username
-    - openai_key: OpenAI API key
-    - langsmith_key: LangSmith API key
-    - tavily_key: Tavily API key (reserved for future use)
-    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
-    """
-    logger.info(f"Player analysis request for: {request.username}")
-    
-    if not request.username:
-        logger.warning("Player analysis request missing username")
-        return AnalysisResponse(
-            success=True,
-            message="Please enter your Chess.com username to analyze your games or profile.",
-            data={},
-            analysis_summary="Username is required for player analysis. Please provide your Chess.com username."
+        logger.error(f"Error in player analysis: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error analyzing player"
         )
+
+@router.post("/pgn")
+async def analyze_pgn(request: PGNAnalysisRequest):
+    """
+    Analyze a chess game in PGN format using multi-agent system
     
+    - Legacy endpoint that routes to chat system
+    - Maintains backward compatibility
+    """
     try:
-        # Run LangGraph agent analysis
-        result = analyze_player(
-            username=request.username,
+        # Convert to chat request
+        chat_message = f"Analyze this chess game:\n\n{request.pgn}\n\nProvide detailed analysis including key moves, tactics, and strategic insights."
+        
+        chat_request = ChatRequest(
+            message=chat_message,
             openai_key=request.openai_key,
-            langsmith_key=request.langsmith_key
+            langsmith_key=request.langsmith_key,
+            tavily_key=request.tavily_key,
+            qdrant_api_key=request.qdrant_api_key,
+            qdrant_url=request.qdrant_url
         )
         
-        if not result["success"]:
-            logger.error(f"Player analysis failed: {result.get('error')}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Analysis failed: {result.get('error')}"
-            )
+        return await chat_with_chess_assistant(chat_request)
         
-        response_data = {
-            "username": request.username,
-            "analysis_type": "player_profile",
-            "message_count": result.get("message_count", 0),
-            "qdrant_available": is_qdrant_available() or bool(request.qdrant_api_key)
-        }
-        
-        logger.info(f"Player analysis completed successfully for: {request.username}")
-        return AnalysisResponse(
-            success=True,
-            message=f"Successfully analyzed player: {request.username}",
-            data=response_data,
-            analysis_summary=result["analysis"]
-        )
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        error_msg = f"Unexpected error during player analysis: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error in PGN analysis: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_msg
+            status_code=500,
+            detail="Error analyzing PGN"
         )
 
-@router.post("/pgn", response_model=AnalysisResponse)
-async def analyze_pgn_game(request: PGNAnalysisRequest):
+@router.post("/recent-games")
+async def analyze_recent_games(request: RecentGamesRequest):
     """
-    Analyze a chess game provided in PGN format
+    Analyze recent games for a Chess.com player using multi-agent system
     
-    Requires:
-    - pgn: PGN game data
-    - openai_key: OpenAI API key  
-    - langsmith_key: LangSmith API key
-    - tavily_key: Tavily API key (reserved for future use)
-    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
+    - Legacy endpoint that routes to chat system
+    - Maintains backward compatibility
     """
-    logger.info("PGN analysis request received")
-    
-    if not request.pgn.strip():
-        logger.warning("PGN analysis request missing game data")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please provide PGN game data for analysis."
-        )
-    
     try:
-        # Run LangGraph agent analysis
-        result = analyze_pgn_game(
-            pgn_content=request.pgn,
+        if not request.username:
+            return {
+                "response": "Please provide a Chess.com username to analyze recent games. For example: 'Analyze recent games for hikaru'",
+                "state": {}
+            }
+        
+        # Convert to chat request
+        chat_message = f"Analyze the {request.num_games} most recent games for Chess.com player {request.username}. Provide insights on performance, patterns, and areas for improvement."
+        
+        chat_request = ChatRequest(
+            message=chat_message,
             openai_key=request.openai_key,
-            langsmith_key=request.langsmith_key
+            langsmith_key=request.langsmith_key,
+            tavily_key=request.tavily_key,
+            qdrant_api_key=request.qdrant_api_key,
+            qdrant_url=request.qdrant_url
         )
         
-        if not result["success"]:
-            logger.error(f"PGN analysis failed: {result.get('error')}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Analysis failed: {result.get('error')}"
-            )
+        return await chat_with_chess_assistant(chat_request)
         
-        # Check if Qdrant is available (env vars or request params)
-        vector_storage_result = None
-        qdrant_available = is_qdrant_available() or bool(request.qdrant_api_key)
-        
-        if qdrant_available:
-            try:
-                vector_storage_result = await _store_pgn_in_qdrant(
-                    request.pgn, 
-                    result["analysis"],
-                    request.qdrant_api_key,
-                    request.qdrant_url
-                )
-            except Exception as e:
-                logger.warning(f"Failed to store in Qdrant: {e}")
-                # Continue without vector storage
-        
-        response_data = {
-            "analysis_type": "pgn_game",
-            "message_count": result.get("message_count", 0),
-            "vector_storage": vector_storage_result is not None,
-            "qdrant_available": qdrant_available
-        }
-        
-        logger.info("PGN analysis completed successfully")
-        return AnalysisResponse(
-            success=True,
-            message="Successfully analyzed PGN game",
-            data=response_data,
-            analysis_summary=result["analysis"]
-        )
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        error_msg = f"Unexpected error during PGN analysis: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error in recent games analysis: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_msg
-        )
-
-@router.post("/recent-games", response_model=AnalysisResponse)
-async def analyze_recent_games_endpoint(request: RecentGamesRequest):
-    """
-    Analyze recent games for a Chess.com player
-    
-    Requires:
-    - username: Chess.com username
-    - num_games: Number of recent games to analyze (1-50)
-    - openai_key: OpenAI API key
-    - langsmith_key: LangSmith API key  
-    - tavily_key: Tavily API key (reserved for future use)
-    - qdrant_api_key: Optional (can use environment variable QDRANT_API_KEY)
-    """
-    logger.info(f"Recent games analysis request for: {request.username} ({request.num_games} games)")
-    
-    if not request.username:
-        logger.warning("Recent games analysis request missing username")
-        return AnalysisResponse(
-            success=True,
-            message="Please enter your Chess.com username to analyze your recent games.",
-            data={},
-            analysis_summary="Username is required for recent games analysis. Please provide your Chess.com username."
-        )
-    
-    try:
-        # Run LangGraph agent analysis
-        result = analyze_recent_games(
-            username=request.username,
-            num_games=request.num_games,
-            openai_key=request.openai_key,
-            langsmith_key=request.langsmith_key
-        )
-        
-        if not result["success"]:
-            logger.error(f"Recent games analysis failed: {result.get('error')}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Analysis failed: {result.get('error')}"
-            )
-        
-        response_data = {
-            "username": request.username,
-            "num_games_requested": request.num_games,
-            "analysis_type": "recent_games",
-            "message_count": result.get("message_count", 0),
-            "qdrant_available": is_qdrant_available() or bool(request.qdrant_api_key)
-        }
-        
-        logger.info(f"Recent games analysis completed for: {request.username}")
-        return AnalysisResponse(
-            success=True,
-            message=f"Successfully analyzed {request.num_games} recent games for {request.username}",
-            data=response_data,
-            analysis_summary=result["analysis"]
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_msg = f"Unexpected error during recent games analysis: {str(e)}"
-        logger.error(error_msg)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_msg
-        )
-
-async def _store_pgn_in_qdrant(
-    pgn_content: str, 
-    analysis_summary: str, 
-    request_api_key: Optional[str] = None,
-    request_url: Optional[str] = None
-) -> bool:
-    """Store PGN game and analysis in Qdrant vector database"""
-    try:
-        # Create Qdrant client (checks env vars first, then request params)
-        qdrant_client = create_qdrant_client(request_api_key, request_url)
-        
-        # Ensure collection exists
-        if not ensure_chess_collection_exists(qdrant_client):
-            logger.error("Failed to ensure Qdrant collection exists")
-            return False
-        
-        # Generate embedding for the game analysis (simplified - in production, use OpenAI embeddings)
-        # For now, we'll skip the actual embedding generation and vector storage
-        # This would require additional OpenAI API calls for text-embedding-ada-002
-        
-        logger.info("Qdrant storage placeholder - embedding generation not implemented")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error storing in Qdrant: {e}")
-        return False 
+            status_code=500,
+            detail="Error analyzing recent games"
+        ) 

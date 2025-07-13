@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { CogIcon, TrashIcon, ArrowDownIcon } from '@heroicons/react/24/outline';
+import React, { useCallback, useState, useEffect } from 'react';
+import { CogIcon, TrashIcon, ArrowDownIcon, DocumentPlusIcon, FolderOpenIcon } from '@heroicons/react/24/outline';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { useChatStream } from '@/hooks/useChatStream';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -9,19 +9,24 @@ import { getApiUrl } from '@/utils/api';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import SettingsModal from './SettingsModal';
+import KnowledgeModal from './KnowledgeModal';
 
-interface ChatContainerProps {
+export interface ChatContainerProps {
   className?: string;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isKnowledgeOpen, setIsKnowledgeOpen] = useState(false);
   const { 
     openaiKey, 
     langsmithKey, 
     tavilyKey, 
     qdrantKey, 
-    qdrantUrl 
+    qdrantUrl,
+    showSettingsOnInit,
+    setShowSettingsOnInit,
+    hasRequiredKeys
   } = useSettings();
 
   const { 
@@ -47,9 +52,41 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
     },
   });
 
-  const handleSendMessage = useCallback(async (message: string, file?: File) => {
-    // Optionally handle file upload as attachment (not implemented here)
-    // For now, just send the message to the backend /analyze/chat endpoint
+  // Show settings modal on initialization when required keys are missing
+  useEffect(() => {
+    if (showSettingsOnInit && !hasRequiredKeys()) {
+      setIsSettingsOpen(true);
+    }
+  }, [showSettingsOnInit, hasRequiredKeys]);
+
+  const handleSendMessage = useCallback(async (message: string, attachedFile?: File) => {
+    if (!hasRequiredKeys()) {
+      toast.error('Please configure your API keys in settings first');
+      setIsSettingsOpen(true);
+      return;
+    }
+
+    // Add user message immediately for instant feedback
+    const userMessage = {
+      id: Date.now().toString(),
+      content: message,
+      role: 'user' as const,
+      timestamp: new Date(),
+    };
+
+    actions.addMessage(userMessage);
+
+    // Add loading message immediately
+    const loadingMessage = {
+      id: (Date.now() + 1).toString(),
+      content: '',
+      role: 'assistant' as const,
+      timestamp: new Date(),
+      isLoading: true,
+    };
+
+    actions.addMessage(loadingMessage);
+
     try {
       const response = await fetch(getApiUrl('/analyze/chat'), {
         method: 'POST',
@@ -64,133 +101,189 @@ const ChatContainer: React.FC<ChatContainerProps> = ({ className }) => {
           qdrant_url: qdrantUrl,
         }),
       });
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      actions.addMessage({ role: 'user', content: message, timestamp: Date.now() });
-      actions.addMessage({ role: 'assistant', content: data.response, timestamp: Date.now() });
-      setConversationState(data.state);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to send message');
+
+      const result = await response.json();
+      
+      // Update conversation state
+      setConversationState(result.state || {});
+
+      // Replace loading message with actual response
+      const assistantMessage = {
+        id: loadingMessage.id,
+        content: result.response,
+        role: 'assistant' as const,
+        timestamp: new Date(),
+        isLoading: false,
+        agentUsed: result.agent_used,
+        ragSources: result.rag_sources,
+      };
+
+      actions.updateMessage(loadingMessage.id, assistantMessage);
+
+    } catch (error) {
+      console.error('Error sending message:', error);
+      
+      // Replace loading message with error
+      const errorMessage = {
+        id: loadingMessage.id,
+        content: 'Sorry, I encountered an error processing your message. Please try again.',
+        role: 'assistant' as const,
+        timestamp: new Date(),
+        isLoading: false,
+        isError: true,
+      };
+
+      actions.updateMessage(loadingMessage.id, errorMessage);
+      
+      toast.error('Failed to send message. Please try again.');
     }
-  }, [conversationState, openaiKey, langsmithKey, tavilyKey, qdrantKey, qdrantUrl, actions]);
+  }, [
+    hasRequiredKeys, 
+    openaiKey, 
+    langsmithKey, 
+    tavilyKey, 
+    qdrantKey, 
+    qdrantUrl, 
+    conversationState, 
+    actions
+  ]);
 
   const handleClearChat = useCallback(() => {
-    if (confirm('Are you sure you want to clear all messages?')) {
-      actions.clearMessages();
-      setConversationState({});
-      toast.success('Chat cleared');
-    }
+    actions.clearMessages();
+    setConversationState({});
+    toast.success('Chat cleared');
   }, [actions]);
 
-  const isEmpty = state.messages.length === 0;
+  const handleCloseSettings = useCallback(() => {
+    setIsSettingsOpen(false);
+    if (showSettingsOnInit && hasRequiredKeys()) {
+      setShowSettingsOnInit(false);
+    }
+  }, [showSettingsOnInit, hasRequiredKeys, setShowSettingsOnInit]);
 
   return (
-    <div className={clsx('flex flex-col h-screen', className)}>
+    <div className={clsx('flex flex-col h-full bg-gray-50 dark:bg-gray-900', className)}>
       {/* Header */}
-      <div className="flex-shrink-0 border-b bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-gray-200 dark:border-gray-700">
-        <div className="max-w-chat mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-chess-accent rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Chess Assistant
-                </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  AI-powered chess analysis and insights
-                </p>
-              </div>
+      <div className="flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-sm">♔</span>
             </div>
-            <div className="flex items-center gap-2">
-              {/* Clear chat button */}
-              {!isEmpty && (
-                <button
-                  onClick={handleClearChat}
-                  className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                  title="Clear chat"
-                >
-                  <TrashIcon className="w-5 h-5" />
-                </button>
-              )}
-              {/* Settings button */}
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title="Settings"
-              >
-                <CogIcon className="w-5 h-5" />
-              </button>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Chess Assistant
+              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Multi-Agent RAG System
+              </p>
             </div>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setIsKnowledgeOpen(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Manage Knowledge Base"
+            >
+              <FolderOpenIcon className="w-5 h-5" />
+            </button>
+            
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Settings"
+            >
+              <CogIcon className="w-5 h-5" />
+            </button>
+            
+            <button
+              onClick={handleClearChat}
+              className="p-2 text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Clear Chat"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
-      {/* Chat messages */}
+
+      {/* Messages */}
       <div 
         ref={containerRef}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto p-4 space-y-4"
       >
-        <div className="max-w-chat mx-auto">
-          {isEmpty ? (
-            <div className="flex items-center justify-center h-full px-4 py-12">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-chess-accent/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-chess-accent" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                  Welcome to Chess Assistant
+        {state.messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mb-4">
+              <span className="text-white font-bold text-2xl">♔</span>
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+              Welcome to Chess Assistant
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 max-w-md">
+              I'm your AI chess expert powered by multiple specialized agents and a knowledge base. 
+              Ask me about chess theory, analyze games, or get player insights!
+            </p>
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-md">
+              <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
+                  📚 Chess Knowledge
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-sm">
-                  Ask me anything about chess, your games, or Chess.com players. I can analyze games, profiles, and more. Just type your question below!
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Ask about openings, endgames, tactics, and strategy
+                </p>
+              </div>
+              <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h3 className="font-medium text-gray-900 dark:text-white text-sm mb-1">
+                  🎯 Game Analysis
+                </h3>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  Analyze Chess.com players and games
                 </p>
               </div>
             </div>
-          ) : (
-            <div className="py-4">
-              {state.messages.map((message, index) => (
-                <ChatMessage
-                  key={index}
-                  message={message}
-                  isStreaming={state.isStreaming && index === state.messages.length - 1}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <>
+            {state.messages.map((message) => (
+              <ChatMessage key={message.id} message={message} />
+            ))}
+            
+            {!isAtBottom() && (
+              <button
+                onClick={scrollToBottom}
+                className="fixed bottom-20 right-6 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg transition-colors z-10"
+              >
+                <ArrowDownIcon className="w-5 h-5" />
+              </button>
+            )}
+          </>
+        )}
       </div>
-      {/* Scroll to bottom button */}
-      {!isAtBottom() && (
-        <div className="absolute bottom-20 right-4 z-10">
-          <button
-            onClick={() => enableAutoScroll()}
-            className="p-2 bg-chess-accent text-white rounded-full shadow-lg hover:bg-chess-accent/90 transition-colors"
-            title="Scroll to bottom"
-          >
-            <ArrowDownIcon className="w-5 h-5" />
-          </button>
-        </div>
-      )}
-      {/* Chat input */}
-      <div className="flex-shrink-0">
+
+      {/* Input */}
+      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
         <ChatInput
           onSendMessage={handleSendMessage}
-          onStop={actions.stopStreaming}
-          isLoading={state.isLoading}
-          isStreaming={state.isStreaming}
+          disabled={state.isLoading}
+          placeholder="Ask me anything about chess..."
         />
       </div>
-      {/* Settings modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+
+      {/* Modals */}
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={handleCloseSettings} 
+      />
+      
+      <KnowledgeModal 
+        isOpen={isKnowledgeOpen} 
+        onClose={() => setIsKnowledgeOpen(false)} 
       />
     </div>
   );

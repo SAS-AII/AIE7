@@ -7,12 +7,14 @@ interface SettingsContextType {
   qdrantKey: string;
   qdrantUrl: string;
   darkMode: boolean;
+  showSettingsOnInit: boolean;
   setOpenaiKey: (key: string) => void;
   setLangsmithKey: (key: string) => void;
   setTavilyKey: (key: string) => void;
   setQdrantKey: (key: string) => void;
   setQdrantUrl: (url: string) => void;
   setDarkMode: (enabled: boolean) => void;
+  setShowSettingsOnInit: (show: boolean) => void;
   clearAllKeys: () => void;
   hasRequiredKeys: () => boolean;
 }
@@ -30,6 +32,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const [qdrantKey, setQdrantKeyState] = useState<string>('');
   const [qdrantUrl, setQdrantUrlState] = useState<string>('');
   const [darkMode, setDarkModeState] = useState<boolean>(false);
+  const [showSettingsOnInit, setShowSettingsOnInitState] = useState<boolean>(false);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
 
   // Load settings from localStorage on mount
@@ -48,6 +51,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       setQdrantKeyState(savedQdrantKey);
       setQdrantUrlState(savedQdrantUrl);
       setDarkModeState(savedDarkMode);
+      
+      // Check if required keys are missing and show settings modal
+      const hasRequiredKeys = savedOpenaiKey.trim() !== '' && savedLangsmithKey.trim() !== '';
+      setShowSettingsOnInitState(!hasRequiredKeys);
+      
       setIsLoaded(true);
 
       // Apply dark mode class to document
@@ -106,6 +114,10 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     }
   };
 
+  const setShowSettingsOnInit = (show: boolean) => {
+    setShowSettingsOnInitState(show);
+  };
+
   const clearAllKeys = () => {
     setOpenaiKeyState('');
     setLangsmithKeyState('');
@@ -123,7 +135,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   };
 
   const hasRequiredKeys = () => {
-    return openaiKey.trim() !== '' && tavilyKey.trim() !== '';
+    return openaiKey.trim() !== '' && langsmithKey.trim() !== '';
   };
 
   // Don't render until settings are loaded from localStorage
@@ -138,12 +150,14 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     qdrantKey,
     qdrantUrl,
     darkMode,
+    showSettingsOnInit,
     setOpenaiKey,
     setLangsmithKey,
     setTavilyKey,
     setQdrantKey,
     setQdrantUrl,
     setDarkMode,
+    setShowSettingsOnInit,
     clearAllKeys,
     hasRequiredKeys,
   };

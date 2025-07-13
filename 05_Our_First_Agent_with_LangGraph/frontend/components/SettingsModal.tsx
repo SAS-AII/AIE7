@@ -77,12 +77,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     qdrantKey,
     qdrantUrl,
     darkMode,
+    showSettingsOnInit,
     setOpenaiKey,
     setLangsmithKey,
     setTavilyKey,
     setQdrantKey,
     setQdrantUrl,
     setDarkMode,
+    setShowSettingsOnInit,
     clearAllKeys,
     hasRequiredKeys,
   } = useSettings();
@@ -111,6 +113,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     setQdrantKey(localQdrantKey);
     setQdrantUrl(localQdrantUrl);
     setDarkMode(localDarkMode);
+    
+    // If this was shown on init and we now have required keys, hide it
+    if (showSettingsOnInit && localOpenaiKey.trim() !== '' && localLangsmithKey.trim() !== '') {
+      setShowSettingsOnInit(false);
+    }
     
     toast.success('Settings saved successfully');
     onClose();
@@ -145,9 +152,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     localQdrantUrl !== qdrantUrl ||
     localDarkMode !== darkMode;
 
+  const canSave = localOpenaiKey.trim() !== '' && localLangsmithKey.trim() !== '';
+
   return (
     <Transition appear show={isOpen} as={React.Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={onClose}>
+      <Dialog as="div" className="relative z-50" onClose={showSettingsOnInit ? () => {} : onClose}>
         <Transition.Child
           as={React.Fragment}
           enter="ease-out duration-300"
@@ -174,44 +183,57 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl transition-all">
                 <div className="flex items-center justify-between mb-4">
                   <Dialog.Title as="h3" className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    Settings
+                    {showSettingsOnInit ? 'Setup Required' : 'Settings'}
                   </Dialog.Title>
-                  <button
-                    onClick={onClose}
-                    className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
-                  >
-                    <XMarkIcon className="w-6 h-6" />
-                  </button>
+                  {!showSettingsOnInit && (
+                    <button
+                      onClick={onClose}
+                      className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
+                    >
+                      <XMarkIcon className="w-6 h-6" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="space-y-4">
-                  {/* Theme toggle */}
-                  <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      {localDarkMode ? (
-                        <MoonIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                      ) : (
-                        <SunIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                      )}
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Dark Mode
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setLocalDarkMode(!localDarkMode)}
-                      className={clsx(
-                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                        localDarkMode ? 'bg-chess-accent' : 'bg-gray-200 dark:bg-gray-600'
-                      )}
-                    >
-                      <span
-                        className={clsx(
-                          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                          localDarkMode ? 'translate-x-6' : 'translate-x-1'
-                        )}
-                      />
-                    </button>
+                {showSettingsOnInit && (
+                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      <strong>Welcome!</strong> Please enter your API keys to get started. 
+                      Your keys are stored securely in your browser's local storage and are never sent to our servers.
+                    </p>
                   </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* Theme toggle - only show if not initial setup */}
+                  {!showSettingsOnInit && (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        {localDarkMode ? (
+                          <MoonIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                        ) : (
+                          <SunIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                        )}
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Dark Mode
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setLocalDarkMode(!localDarkMode)}
+                        className={clsx(
+                          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                          localDarkMode ? 'bg-chess-accent' : 'bg-gray-200 dark:bg-gray-600'
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                            localDarkMode ? 'translate-x-6' : 'translate-x-1'
+                          )}
+                        />
+                      </button>
+                    </div>
+                  )}
 
                   {/* API Keys section */}
                   <div className="space-y-4">
@@ -232,20 +254,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     />
 
                     <PasswordField
-                      id="tavily-key"
-                      label="Tavily API Key"
-                      value={localTavilyKey}
-                      onChange={setLocalTavilyKey}
-                      placeholder="tvly-..."
+                      id="langsmith-key"
+                      label="LangSmith API Key"
+                      value={localLangsmithKey}
+                      onChange={setLocalLangsmithKey}
+                      placeholder="ls__..."
                       required
                     />
 
                     <PasswordField
-                      id="langsmith-key"
-                      label="LangSmith API Key (Optional)"
-                      value={localLangsmithKey}
-                      onChange={setLocalLangsmithKey}
-                      placeholder="ls__..."
+                      id="tavily-key"
+                      label="Tavily API Key (Optional)"
+                      value={localTavilyKey}
+                      onChange={setLocalTavilyKey}
+                      placeholder="tvly-..."
                     />
 
                     <PasswordField
@@ -271,46 +293,58 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     </div>
                   </div>
 
+                  {/* Local storage notice */}
+                  <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      <strong>Privacy Notice:</strong> All API keys are stored securely in your browser's local storage. 
+                      They are never sent to our servers and remain private to your device.
+                    </p>
+                  </div>
+
                   {/* Status indicator */}
                   <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div className="flex items-center gap-2">
                       <div className={clsx(
                         'w-2 h-2 rounded-full',
-                        hasRequiredKeys() ? 'bg-green-500' : 'bg-red-500'
+                        canSave ? 'bg-green-500' : 'bg-red-500'
                       )} />
                       <span className="text-sm text-gray-600 dark:text-gray-400">
-                        {hasRequiredKeys() ? 'Ready to use' : 'Missing required keys'}
+                        {canSave ? 'Ready to use' : 'Missing required keys'}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Required: OpenAI API Key, Tavily API Key
+                      Required: OpenAI API Key, LangSmith API Key
                     </p>
                   </div>
 
                   {/* Action buttons */}
                   <div className="flex justify-between gap-2 pt-4">
-                    <button
-                      onClick={handleClearAll}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                      Clear All
-                    </button>
-                    
-                    <div className="flex gap-2">
+                    {!showSettingsOnInit && (
                       <button
-                        onClick={handleReset}
-                        disabled={!hasChanges}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handleClearAll}
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
                       >
-                        Reset
+                        <TrashIcon className="w-4 h-4" />
+                        Clear All
                       </button>
+                    )}
+                    
+                    <div className="flex gap-2 ml-auto">
+                      {!showSettingsOnInit && (
+                        <button
+                          onClick={handleReset}
+                          disabled={!hasChanges}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Reset
+                        </button>
+                      )}
                       <button
                         onClick={handleSave}
-                        disabled={!hasChanges}
+                        disabled={!canSave}
                         className="px-4 py-2 text-sm font-medium text-white bg-chess-accent hover:bg-chess-accent/90 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Save
+                        {showSettingsOnInit ? 'Get Started' : 'Save'}
                       </button>
                     </div>
                   </div>
