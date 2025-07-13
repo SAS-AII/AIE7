@@ -1,3 +1,5 @@
 2025-07-13 04:23:26 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
 2025-07-13 04:23:26 | INFO     | main:startup_event:39 - Qdrant integration available: True
 2025-07-13 04:24:02 | DEBUG    | routers.health:health_check:11 - Health check requested
+2025-07-13 04:25:35 | INFO     | main:startup_event:36 - Chess.com LangGraph Agent API starting up
+2025-07-13 04:25:35 | INFO     | main:startup_event:39 - Qdrant integration available: True

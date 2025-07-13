@@ -4,7 +4,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from typing import List, Dict, Any, Optional
 import hashlib
 import json
-from backend.utils.logging import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 

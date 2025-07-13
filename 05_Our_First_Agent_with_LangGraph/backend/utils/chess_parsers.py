@@ -2,7 +2,7 @@ import chess.pgn
 import chess
 from io import StringIO
 from typing import Dict, List, Optional, Any
-from backend.utils.logging import get_logger
+from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
