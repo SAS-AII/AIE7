@@ -1,5 +1,5 @@
 import os
-from typing import TypedDict, Annotated, Dict, Any
+from typing import TypedDict, Annotated, Dict, Any, Optional
 from uuid import uuid4
 
 from langchain_openai import ChatOpenAI
@@ -87,9 +87,16 @@ def create_chess_agent_graph(openai_key: str, langsmith_key: str, langsmith_proj
     logger.info("Chess agent graph compiled successfully")
     return chess_agent_graph
 
-def analyze_player(username: str, openai_key: str, langsmith_key: str) -> Dict[str, Any]:
+def analyze_player(username: Optional[str], openai_key: str, langsmith_key: str) -> Dict[str, Any]:
     """Analyze a Chess.com player using the LangGraph agent"""
     logger.info(f"Starting player analysis for: {username}")
+    if not username:
+        logger.warning("analyze_player called without username")
+        return {
+            "success": True,
+            "analysis": "Username is required for player analysis. Please provide your Chess.com username.",
+            "message_count": 0
+        }
     
     try:
         # Create the agent graph
@@ -157,9 +164,16 @@ def analyze_pgn_game(pgn_content: str, openai_key: str, langsmith_key: str) -> D
             "error": error_msg
         }
 
-def analyze_recent_games(username: str, num_games: int, openai_key: str, langsmith_key: str) -> Dict[str, Any]:
+def analyze_recent_games(username: Optional[str], num_games: int, openai_key: str, langsmith_key: str) -> Dict[str, Any]:
     """Analyze recent games for a Chess.com player"""
     logger.info(f"Starting recent games analysis for {username} ({num_games} games)")
+    if not username:
+        logger.warning("analyze_recent_games called without username")
+        return {
+            "success": True,
+            "analysis": "Username is required for recent games analysis. Please provide your Chess.com username.",
+            "message_count": 0
+        }
     
     try:
         # Create the agent graph

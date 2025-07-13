@@ -7,49 +7,31 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
-export interface ChatRequest {
-  message: string;
-  openai_api_key?: string;
-  langsmith_api_key?: string;
-  tavily_api_key?: string;
+// Updated interfaces to match backend Pydantic models
+export interface PlayerAnalysisRequest {
+  username: string;
+  openai_key: string;
+  langsmith_key: string;
+  tavily_key: string;
   qdrant_api_key?: string;
   qdrant_url?: string;
-}
-
-export interface ChatResponse {
-  response: string;
-  error?: string;
-}
-
-export interface HealthResponse {
-  status: string;
-  timestamp?: string;
 }
 
 export interface PGNAnalysisRequest {
-  pgn_content: string;
-  openai_api_key?: string;
-  langsmith_api_key?: string;
-  tavily_api_key?: string;
-  qdrant_api_key?: string;
-  qdrant_url?: string;
-}
-
-export interface PlayerAnalysisRequest {
-  username: string;
-  openai_api_key?: string;
-  langsmith_api_key?: string;
-  tavily_api_key?: string;
+  pgn: string;
+  openai_key: string;
+  langsmith_key: string;
+  tavily_key: string;
   qdrant_api_key?: string;
   qdrant_url?: string;
 }
 
 export interface RecentGamesRequest {
   username: string;
-  limit?: number;
-  openai_api_key?: string;
-  langsmith_api_key?: string;
-  tavily_api_key?: string;
+  num_games: number;
+  openai_key: string;
+  langsmith_key: string;
+  tavily_key: string;
   qdrant_api_key?: string;
   qdrant_url?: string;
 }
@@ -60,38 +42,6 @@ export interface ApiError {
   status_code?: number;
 }
 
-// Utility function to create headers with API keys
-const createHeaders = (apiKeys: {
-  openai_api_key?: string;
-  langsmith_api_key?: string;
-  tavily_api_key?: string;
-  qdrant_api_key?: string;
-  qdrant_url?: string;
-}): HeadersInit => {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
-
-  // Add API keys as headers if provided
-  if (apiKeys.openai_api_key) {
-    headers['X-OpenAI-API-Key'] = apiKeys.openai_api_key;
-  }
-  if (apiKeys.langsmith_api_key) {
-    headers['X-LangSmith-API-Key'] = apiKeys.langsmith_api_key;
-  }
-  if (apiKeys.tavily_api_key) {
-    headers['X-Tavily-API-Key'] = apiKeys.tavily_api_key;
-  }
-  if (apiKeys.qdrant_api_key) {
-    headers['X-Qdrant-API-Key'] = apiKeys.qdrant_api_key;
-  }
-  if (apiKeys.qdrant_url) {
-    headers['X-Qdrant-URL'] = apiKeys.qdrant_url;
-  }
-
-  return headers;
-};
-
 // Generic fetch wrapper with error handling
 const fetchWithErrorHandling = async <T>(
   url: string,
@@ -99,7 +49,6 @@ const fetchWithErrorHandling = async <T>(
 ): Promise<T> => {
   try {
     const response = await fetch(url, options);
-    
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
@@ -108,7 +57,6 @@ const fetchWithErrorHandling = async <T>(
         `HTTP ${response.status}: ${response.statusText}`
       );
     }
-    
     return await response.json();
   } catch (error) {
     if (error instanceof Error) {
@@ -132,21 +80,11 @@ export const checkHealth = async (): Promise<HealthResponse> => {
 export const analyzePlayer = async (
   request: PlayerAnalysisRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const headers = createHeaders(request);
-  
   const response = await fetch(`${apiUrl}/analyze/player`, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({
-      username: request.username,
-      ...(request.openai_api_key && { openai_api_key: request.openai_api_key }),
-      ...(request.langsmith_api_key && { langsmith_api_key: request.langsmith_api_key }),
-      ...(request.tavily_api_key && { tavily_api_key: request.tavily_api_key }),
-      ...(request.qdrant_api_key && { qdrant_api_key: request.qdrant_api_key }),
-      ...(request.qdrant_url && { qdrant_url: request.qdrant_url }),
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
@@ -155,8 +93,6 @@ export const analyzePlayer = async (
       `HTTP ${response.status}: ${response.statusText}`
     );
   }
-
-  // Return the readable stream for streaming responses
   return response.body || '';
 };
 
@@ -164,21 +100,11 @@ export const analyzePlayer = async (
 export const analyzePGN = async (
   request: PGNAnalysisRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const headers = createHeaders(request);
-  
   const response = await fetch(`${apiUrl}/analyze/pgn`, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({
-      pgn_content: request.pgn_content,
-      ...(request.openai_api_key && { openai_api_key: request.openai_api_key }),
-      ...(request.langsmith_api_key && { langsmith_api_key: request.langsmith_api_key }),
-      ...(request.tavily_api_key && { tavily_api_key: request.tavily_api_key }),
-      ...(request.qdrant_api_key && { qdrant_api_key: request.qdrant_api_key }),
-      ...(request.qdrant_url && { qdrant_url: request.qdrant_url }),
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
@@ -187,7 +113,6 @@ export const analyzePGN = async (
       `HTTP ${response.status}: ${response.statusText}`
     );
   }
-
   return response.body || '';
 };
 
@@ -195,22 +120,11 @@ export const analyzePGN = async (
 export const analyzeRecentGames = async (
   request: RecentGamesRequest
 ): Promise<ReadableStream<Uint8Array> | string> => {
-  const headers = createHeaders(request);
-  
   const response = await fetch(`${apiUrl}/analyze/recent-games`, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({
-      username: request.username,
-      limit: request.limit || 5,
-      ...(request.openai_api_key && { openai_api_key: request.openai_api_key }),
-      ...(request.langsmith_api_key && { langsmith_api_key: request.langsmith_api_key }),
-      ...(request.tavily_api_key && { tavily_api_key: request.tavily_api_key }),
-      ...(request.qdrant_api_key && { qdrant_api_key: request.qdrant_api_key }),
-      ...(request.qdrant_url && { qdrant_url: request.qdrant_url }),
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   });
-
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
@@ -219,7 +133,6 @@ export const analyzeRecentGames = async (
       `HTTP ${response.status}: ${response.statusText}`
     );
   }
-
   return response.body || '';
 };
 

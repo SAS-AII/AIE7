@@ -12,13 +12,13 @@ class BaseRequest(BaseModel):
 
 # Request models
 class PlayerAnalysisRequest(BaseRequest):
-    username: str = Field(..., description="Chess.com username")
+    username: Optional[str] = Field(None, description="Chess.com username (optional, will be requested if missing)")
 
 class PGNAnalysisRequest(BaseRequest):
     pgn: str = Field(..., description="PGN game data")
 
 class RecentGamesRequest(BaseRequest):
-    username: str = Field(..., description="Chess.com username")
+    username: Optional[str] = Field(None, description="Chess.com username (optional, will be requested if missing)")
     num_games: int = Field(10, ge=1, le=50, description="Number of recent games to analyze")
 
 # Response models

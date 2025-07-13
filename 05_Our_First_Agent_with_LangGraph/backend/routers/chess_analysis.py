@@ -39,9 +39,11 @@ async def analyze_chess_player(request: PlayerAnalysisRequest):
     
     if not request.username:
         logger.warning("Player analysis request missing username")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please supply your chess.com username for analysis."
+        return AnalysisResponse(
+            success=True,
+            message="Please enter your Chess.com username to analyze your games or profile.",
+            data={},
+            analysis_summary="Username is required for player analysis. Please provide your Chess.com username."
         )
     
     try:
@@ -178,9 +180,11 @@ async def analyze_recent_games_endpoint(request: RecentGamesRequest):
     
     if not request.username:
         logger.warning("Recent games analysis request missing username")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please supply your chess.com username for analysis."
+        return AnalysisResponse(
+            success=True,
+            message="Please enter your Chess.com username to analyze your recent games.",
+            data={},
+            analysis_summary="Username is required for recent games analysis. Please provide your Chess.com username."
         )
     
     try:
