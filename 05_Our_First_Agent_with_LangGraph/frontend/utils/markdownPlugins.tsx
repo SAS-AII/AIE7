@@ -189,5 +189,5 @@ export const defaultMarkdownConfig = {
   components: markdownComponents,
   skipHtml: true, // Skip HTML for security
   // linkTarget removed, handled by custom link renderer
-  transformImageUri: (uri: string) => uri, // Pass through image URIs
+  urlTransform: (url: string) => url, // Pass through all URLs (images, links, etc)
 }; 
