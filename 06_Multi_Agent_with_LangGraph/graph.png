@@ -1,0 +1,18 @@
+// Activity #2 — Labeled Graph Flow
+digraph {
+	fontsize=14 rankdir=LR
+	START [label=START shape=circle]
+	supervisor [label="supervisor
+(node)" shape=box]
+	LoanRetriever [label="LoanRetriever
+(node)" shape=box]
+	Search [label="Search
+(node)" shape=box]
+	FINISH [label=FINISH shape=doublecircle]
+	START -> supervisor
+	supervisor -> LoanRetriever [label=next]
+	LoanRetriever -> supervisor [label=return]
+	supervisor -> Search [label=next]
+	Search -> supervisor [label=return]
+	supervisor -> FINISH [label=next]
+}
