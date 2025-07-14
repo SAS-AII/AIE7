@@ -1,4 +1,0 @@
----
-alwaysApply: true
----
-- after generation or changes, automatically run 'git add .' and commit with a helpful message

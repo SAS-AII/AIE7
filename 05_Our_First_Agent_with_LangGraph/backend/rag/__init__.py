@@ -1,1 +1,0 @@
-"""RAG (Retrieval-Augmented Generation) system for chess knowledge management""" 

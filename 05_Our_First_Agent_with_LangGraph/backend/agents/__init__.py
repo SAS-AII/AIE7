@@ -1,1 +1,0 @@
-"""Multi-agent system for chess assistance""" 
